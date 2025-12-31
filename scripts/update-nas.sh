@@ -1,0 +1,1 @@
+nixos-rebuild switch   --flake .#nas   --target-host root@nas.local
