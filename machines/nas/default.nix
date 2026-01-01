@@ -32,20 +32,6 @@
     "vm.dirty_expire_centisecs"    = 60000;      # 10分
   };
 
-  environment.persistence."/nix/persistent" = {
-    hideMounts = true;
-    directories = [
-      "/var/lib/nixos"
-      #"/var/log" # for boot truble investigation purpose only
-    ];
-    files = [
-      "/etc/ssh/ssh_host_ed25519_key"
-      "/etc/ssh/ssh_host_ed25519_key.pub"
-      "/etc/ssh/ssh_host_rsa_key"
-      "/etc/ssh/ssh_host_rsa_key.pub"
-    ];
-  };
-
   environment.systemPackages = with pkgs; [
     mergerfs
     mergerfs-tools

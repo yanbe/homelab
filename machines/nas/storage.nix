@@ -148,6 +148,35 @@ in {
       ];
     };   
   };
+
+  environment.persistence."/nix/persistent" = {
+    hideMounts = true;
+    directories = [
+      "/var/lib/nixos"
+      #"/var/log" # for boot truble investigation purpose only
+    ];
+    files = [
+      "/etc/ssh/ssh_host_ed25519_key"
+      "/etc/ssh/ssh_host_ed25519_key.pub"
+      "/etc/ssh/ssh_host_rsa_key"
+      "/etc/ssh/ssh_host_rsa_key.pub"
+    ];
+  };
+
+  environment.etc."mergerfs.conf".text = "
+      category.create=pfrd
+      func.getattr=newest
+      minfreespace=5G
+      cache.files=partial
+      fsname=mergerfs
+
+      x-systemd.wants-mounts-for=/mnt/ssd_sata_p0
+      x-systemd.wants-mounts-for=/mnt/ssd_sata_p1
+      x-systemd.wants-mounts-for=/mnt/ssd_sata_p2
+      x-systemd.wants-mounts-for=/mnt/ssd_sata_p3
+      x-systemd.wants-mounts-for=/mnt/ssd_usb3_uas_p5
+  ";
+
   services.snapraid = {
     enable = true;
     dataDisks = {

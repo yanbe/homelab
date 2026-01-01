@@ -24,7 +24,7 @@
       system = "x86_64-linux";
       modules = [
         ./machines/nas
-        ./machines/nas/disko.nix
+        ./machines/nas/storage.nix
         ./machines/nas/samba.nix
       ];
       specialArgs = { inherit inputs; };
