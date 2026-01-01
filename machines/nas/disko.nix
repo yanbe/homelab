@@ -28,7 +28,6 @@ let
                 "noatime"
                 "nodiratime"
                 "user_xattr"
-                "x-systemd.mount-timeout=40s"
               ]; 
             };
           };
@@ -62,7 +61,6 @@ let
                 "logbufs=8"
                 "logbsize=256k"
                 "allocsize=512m"
-                "x-systemd.mount-timeout=40s"
               ];
             };
           };
@@ -195,13 +193,12 @@ in {
       "minfreespace=5G"
       "cache.files=partial"
       "fsname=mergerfs"
-      "branches-mount-timeout=30"
 
-      #"x-systemd.wants-mounts-for=/mnt/ssd_sata_p0"
-      #"x-systemd.wants-mounts-for=/mnt/ssd_sata_p1"
-      #"x-systemd.wants-mounts-for=/mnt/ssd_sata_p2"
-      #"x-systemd.wants-mounts-for=/mnt/ssd_sata_p3"
-      #"x-systemd.wants-mounts-for=/mnt/ssd_usb3_uas_p5"
+      "x-systemd.wants-mounts-for=/mnt/ssd_sata_p0"
+      "x-systemd.wants-mounts-for=/mnt/ssd_sata_p1"
+      "x-systemd.wants-mounts-for=/mnt/ssd_sata_p2"
+      "x-systemd.wants-mounts-for=/mnt/ssd_sata_p3"
+      "x-systemd.wants-mounts-for=/mnt/ssd_usb3_uas_p5"
     ];
   };
   fileSystems."/mnt/pool-hdd" = {
@@ -213,22 +210,21 @@ in {
       "minfreespace=5G"
       "cache.files=partial"
       "fsname=mergerfs"
-      "branches-mount-timeout=30"
       
-      #"x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p0"
-      #"x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p1"
-      #"x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p2"
-      #"x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p3"
+      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p0"
+      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p1"
+      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p2"
+      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p3"
 
-      #"x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p5"
-      #"x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p6"
-      #"x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p7"
-      #"x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p8"
+      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p5"
+      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p6"
+      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p7"
+      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p8"
 
-      #"x-systemd.wants-mounts-for=/mnt/hdd_usb3_bot_p0"
-      #"x-systemd.wants-mounts-for=/mnt/hdd_usb3_bot_p1"
-      #"x-systemd.wants-mounts-for=/mnt/hdd_usb3_bot_p2"
-      #"x-systemd.wants-mounts-for=/mnt/hdd_usb3_bot_p4"
+      "x-systemd.wants-mounts-for=/mnt/hdd_usb3_bot_p0"
+      "x-systemd.wants-mounts-for=/mnt/hdd_usb3_bot_p1"
+      "x-systemd.wants-mounts-for=/mnt/hdd_usb3_bot_p2"
+      "x-systemd.wants-mounts-for=/mnt/hdd_usb3_bot_p4"
     ];
   };
 }

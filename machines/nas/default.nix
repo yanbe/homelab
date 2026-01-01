@@ -48,6 +48,7 @@
 
   environment.systemPackages = with pkgs; [
     mergerfs
+    mergerfs-tools
     pciutils
     usbutils
     smartmontools
