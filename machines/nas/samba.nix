@@ -48,9 +48,14 @@
 
         "hosts allow" = "192.168.0.0/16 127.0.0.1 localhost";
         "hosts deny" = "0.0.0.0/0";
+
+        # SnapRAID関連ファイルを隠す
+        "hide files" = "/snapraid.*/";
+        "veto files" = "/snapraid.*/";
+        "delete veto files" = "no";
       };
-      incoming = {
-        path = "/mnt/pool-ssd";
+      storage = {
+        path = "/mnt/storage";
         "read only" = "no";
         "guest ok" = "yes";
         "force user" = "root";
@@ -59,15 +64,6 @@
         "strict locking" = "no";
         oplocks = "no";
         "kernel oplocks" = "no";
-      };
-      media = {
-        path = "/mnt/pool-hdd";
-        browseable = "yes";
-        "read only" = "no";
-
-        "guest ok" = "yes";
-        "force user" = "root";
-        "force group" = "root";
       };
     };
   };

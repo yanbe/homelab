@@ -1,4 +1,4 @@
-{ lib , ... }:
+{ pkgs, config, ... }:
 let
   ssd_f2fs = name: device: {
     ${name} = {
@@ -28,7 +28,7 @@ let
                 "noatime"
                 "nodiratime"
                 "user_xattr"
-              ]; 
+              ];
             };
           };
         };
@@ -72,7 +72,7 @@ in {
   disko.devices = {
     # {deviceType}_{connectionType}(_{specialUsage})(_{protocol})_{port}
     disk = {
-      stick_usb2_in = { 
+      stick_usb2_in = {
         device = "/dev/disk/by-id/usb-BUFFALO_ClipDrive_408183A840A2D8B2-0:0";
         type = "disk";
         content = {
@@ -95,7 +95,7 @@ in {
           };
         };
       };
-      stick_usb3_ex = { 
+      stick_usb3_ex = {
         device = "/dev/disk/by-id/usb-_USB_DISK_07083ACF31B4C014-0:0" ;
         type = "disk";
         content = {
@@ -114,7 +114,7 @@ in {
         };
       };
     }
-    // ssd_f2fs "ssd_sata_p0" "/dev/disk/by-id/ata-INTEL_SSDSC2CT120A3_CVMP229202QL120BGN" 
+    // ssd_f2fs "ssd_sata_p0" "/dev/disk/by-id/ata-INTEL_SSDSC2CT120A3_CVMP229202QL120BGN"
     // ssd_f2fs "ssd_sata_p1" "/dev/disk/by-id/ata-Samsung_SSD_750_EVO_120GB_S3F2NWAHC24663H"
     // ssd_f2fs "ssd_sata_p2" "/dev/disk/by-id/ata-Samsung_SSD_750_EVO_120GB_S2SGNWAH267962P"
     // ssd_f2fs "ssd_sata_p3" "/dev/disk/by-id/ata-Samsung_SSD_750_EVO_120GB_S3F2NWAHC04260K"
@@ -146,7 +146,7 @@ in {
         "defaults"
         "mode=755"
       ];
-    };   
+    };
   };
 
   environment.persistence."/nix/persistent" = {
@@ -163,19 +163,98 @@ in {
     ];
   };
 
-  environment.etc."mergerfs.conf".text = "
-      category.create=pfrd
-      func.getattr=newest
-      minfreespace=5G
-      cache.files=partial
-      fsname=mergerfs
+  # https://trapexit.github.io/mergerfs/latest/extended_usage_patterns/#tiered-cache
+  environment.etc."mergerfs.conf".text = ''
+    branches=/mnt/ssd*:/mnt/hdd_esata_pmp*=NC:/mnt/hdd_usb3_bot*=NC
+    mountpoint=/mnt/storage
+    category.create=pfrd
+    func.getattr=newest
+    minfreespace=5G
+    cache.files=partial
+    fsname=mergerfs
+  '';
+  environment.etc."mergerfs-base.conf".text = ''
+    branches=/mnt/hdd_esata_pmp*:/mnt/hdd_usb3_bot*
+    mountpoint=/mnt/storage-base
+    category.create=epff
+    func.getattr=newest
+    minfreespace=5G
+    cache.files=partial
+    fsname=mergerfs-base
+  '';
+  systemd.services.mergerfs = {
+    enable = true;
+    description = "Mount MergerFS shared storage pool";
+    path = [
+      pkgs.coreutils
+      pkgs.mergerfs
+      pkgs.fuse
+    ];
+    preStart = "mkdir -p /mnt/storage";
+    script = "mergerfs -f -o config=${config.environment.etc."mergerfs.conf".source}";
+    postStop = "fusermount -uz /mnt/storage && rmdir /mnt/storage";
+    after = [
+      "mnt-ssd_sata_p0.mount"
+      "mnt-ssd_sata_p1.mount"
+      "mnt-ssd_sata_p2.mount"
+      "mnt-ssd_sata_p3.mount"
+      "mnt-ssd_usb_uas_p5.mount"
 
-      x-systemd.wants-mounts-for=/mnt/ssd_sata_p0
-      x-systemd.wants-mounts-for=/mnt/ssd_sata_p1
-      x-systemd.wants-mounts-for=/mnt/ssd_sata_p2
-      x-systemd.wants-mounts-for=/mnt/ssd_sata_p3
-      x-systemd.wants-mounts-for=/mnt/ssd_usb3_uas_p5
-  ";
+      "mnt-hdd_esata_pmp_p0.mount"
+      "mnt-hdd_esata_pmp_p1.mount"
+      "mnt-hdd_esata_pmp_p2.mount"
+      "mnt-hdd_esata_pmp_p3.mount"
+
+      "mnt-hdd_esata_pmp_p5.mount"
+      "mnt-hdd_esata_pmp_p6.mount"
+      "mnt-hdd_esata_pmp_p7.mount"
+      "mnt-hdd_esata_pmp_p8.mount"
+
+      "mnt-hdd_usb3_bot_p0.mount"
+      "mnt-hdd_usb3_bot_p1.mount"
+      "mnt-hdd_usb3_bot_p2.mount"
+      "mnt-hdd_usb3_bot_p4.mount"
+    ];
+    wantedBy = [ "multi-user.target" ];
+    restartTriggers = [
+      pkgs.mergerfs
+      config.environment.etc."mergerfs.conf".source
+    ];
+  };
+
+  systemd.services.mergerfs-base = {
+    enable = true;
+    description = "Mount MergerFS base storage pool";
+    path = [
+      pkgs.coreutils
+      pkgs.mergerfs
+      pkgs.fuse
+    ];
+    preStart = "mkdir -p /mnt/storage-base";
+    script = "mergerfs -f -o config=${config.environment.etc."mergerfs-base.conf".source}";
+    postStop = "fusermount -uz /mnt/storage-base && rmdir /mnt/storage-base";
+    after = [
+      "mnt-hdd_esata_pmp_p0.mount"
+      "mnt-hdd_esata_pmp_p1.mount"
+      "mnt-hdd_esata_pmp_p2.mount"
+      "mnt-hdd_esata_pmp_p3.mount"
+
+      "mnt-hdd_esata_pmp_p5.mount"
+      "mnt-hdd_esata_pmp_p6.mount"
+      "mnt-hdd_esata_pmp_p7.mount"
+      "mnt-hdd_esata_pmp_p8.mount"
+
+      "mnt-hdd_usb3_bot_p0.mount"
+      "mnt-hdd_usb3_bot_p1.mount"
+      "mnt-hdd_usb3_bot_p2.mount"
+      "mnt-hdd_usb3_bot_p4.mount"
+    ];
+    wantedBy = [ "multi-user.target" ];
+    restartTriggers = [
+      pkgs.mergerfs
+      config.environment.etc."mergerfs-base.conf".source
+    ];
+  };
 
   services.snapraid = {
     enable = true;
@@ -213,47 +292,5 @@ in {
     scrub.plan = 10;
     scrub.interval = "Sun *-*-* 05:00:00";
   };
-  fileSystems."/mnt/pool-ssd" = {
-    fsType = "fuse.mergerfs";
-    device = "/mnt/ssd*";
-    options = [
-      "category.create=pfrd"
-      "func.getattr=newest"
-      "minfreespace=5G"
-      "cache.files=partial"
-      "fsname=mergerfs"
 
-      "x-systemd.wants-mounts-for=/mnt/ssd_sata_p0"
-      "x-systemd.wants-mounts-for=/mnt/ssd_sata_p1"
-      "x-systemd.wants-mounts-for=/mnt/ssd_sata_p2"
-      "x-systemd.wants-mounts-for=/mnt/ssd_sata_p3"
-      "x-systemd.wants-mounts-for=/mnt/ssd_usb3_uas_p5"
-    ];
-  };
-  fileSystems."/mnt/pool-hdd" = {
-    fsType = "fuse.mergerfs";
-    device = "/mnt/hdd_esata_pmp*:/mnt/hdd_usb3_bot*";
-    options = [
-      "category.create=msplfs"
-      "func.getattr=newest"
-      "minfreespace=5G"
-      "cache.files=partial"
-      "fsname=mergerfs"
-      
-      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p0"
-      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p1"
-      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p2"
-      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p3"
-
-      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p5"
-      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p6"
-      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p7"
-      "x-systemd.wants-mounts-for=/mnt/hdd_esata_pmp_p8"
-
-      "x-systemd.wants-mounts-for=/mnt/hdd_usb3_bot_p0"
-      "x-systemd.wants-mounts-for=/mnt/hdd_usb3_bot_p1"
-      "x-systemd.wants-mounts-for=/mnt/hdd_usb3_bot_p2"
-      "x-systemd.wants-mounts-for=/mnt/hdd_usb3_bot_p4"
-    ];
-  };
 }

@@ -10,13 +10,13 @@
   time.timeZone = "Asia/Tokyo";
 
   boot.initrd.availableKernelModules = [ "uas" ];
-  boot.blacklistedKernelModules = [ "radeon" ];
+  boot.blacklistedKernelModules = [ "radeon" ]; # ブートシーケンスの途中でコンソールの表示の更新が止まる対策
   boot.kernelParams = [
     "usbcore.autosuspend=-1"
-    "nomodeset"
+    "nomodeset" # ブートシーケンスの途中でコンソールの表示の更新が止まる対策
     #"loglevel=7"
     #"systemd.log_level=debug"
-    "systemd.log_target=console"
+    "systemd.log_target=console" # トラブルシューティングに役に立つことがあるためコンソールに出力する
   ];
   boot.kernel.sysctl = {
     # TCP ウィンドウチューニング (Robocopy MT:16-32向け)
