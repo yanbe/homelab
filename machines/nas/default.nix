@@ -9,7 +9,7 @@
 
   time.timeZone = "Asia/Tokyo";
 
-  boot.initrd.availableKernelModules = [ "uas" ];
+  boot.initrd.availableKernelModules = [ "uas" ]; # /nix が UASPをサポートしたインタフェースにマウントされるので必要
   boot.blacklistedKernelModules = [ "radeon" ]; # ブートシーケンスの途中でコンソールの表示の更新が止まる対策
   boot.kernelParams = [
     "usbcore.autosuspend=-1"
@@ -33,6 +33,9 @@
     mergerfs
     mergerfs-tools
     lsof
+    inotify-tools
+
+    # hardware investigation & performance monitoring tools
     pciutils
     usbutils
     smartmontools

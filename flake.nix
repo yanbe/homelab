@@ -24,7 +24,7 @@
       system = "x86_64-linux";
       modules = [
         ./machines/nas
-        ./machines/nas/disko.nix
+        ./machines/nas/disk-config.nix
         ./machines/nas/mergerfs.nix
         ./machines/nas/snapraid.nix
         ./machines/nas/samba.nix

@@ -50,9 +50,9 @@
         "veto files" = "/snapraid.*/";
         "delete veto files" = "no";
       };
-      storage = {
-        # see also: ./mregerfs.nix
-        path = "/mnt/storage";
+      media = {
+        # see also: ./mergerfs.nix
+        path = "/mnt/mergerfs/cached";
         "read only" = "no";
         "guest ok" = "yes";
         "force user" = "root";
