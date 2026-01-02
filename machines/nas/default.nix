@@ -19,22 +19,20 @@
     "systemd.log_target=console" # トラブルシューティングに役に立つことがあるためコンソールに出力する
   ];
   boot.kernel.sysctl = {
-    # TCP ウィンドウチューニング (Robocopy MT:16-32向け)
-    "net.core.rmem_max"     = 134217728;     # 128MB
-    "net.core.wmem_max"     = 134217728;
-    "net.ipv4.tcp_rmem"     = "4096 87380 134217728";
-    "net.ipv4.tcp_wmem"     = "4096 65536 134217728";
-    "net.core.netdev_max_backlog" = 3000;
+    "net.core.rmem_max" = 268435456;
+    "net.core.wmem_max" = 268435456;
+    "net.ipv4.tcp_rmem" = "4096 87380 268435456";
+    "net.ipv4.tcp_wmem" = "4096 65536 268435456";
+    "net.core.netdev_max_backlog" = 5000;
 
-    "vm.dirty_background_bytes"    = 2147483648; # 2GB
-    "vm.dirty_bytes"               = 8589934592; # 8GB
-    "vm.dirty_writeback_centisecs" = 1500;       # 15秒
-    "vm.dirty_expire_centisecs"    = 60000;      # 10分
+    "vm.dirty_ratio" = 20;
+    "vm.dirty_background_ratio" = 10;
   };
 
   environment.systemPackages = with pkgs; [
     mergerfs
     mergerfs-tools
+    lsof
     pciutils
     usbutils
     smartmontools
@@ -49,10 +47,6 @@
     hostId = "8425e349";
     firewall.enable = true;
     firewall.allowPing = true;
-    # 指定しないと enp2s0: dhcp_envoption 24.0/3: malformed embedded option エラーが journalctl に数秒おきに出力されてしまう
-    dhcpcd.extraConfig = ''
-      nooption path_mtu_aging_timeout
-    '';
   };
 
   services.openssh = {

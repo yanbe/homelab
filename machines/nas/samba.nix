@@ -28,16 +28,12 @@
         security = "user";
 
         # 高速転送用
-        "server multi channel support" = "yes";
-
-        "aio read size" = 0;
-        "aio write size" = 0;
-        "socket options" = "TCP_NODELAY IPTOS_LOWDELAY";
+        "aio read size" = 1;
+        "aio write size" = 1;
         "use sendfile" = "no";
         "strict sync" = "no";
         "sync always" = "no";
-
-        "smb encrypt" = "off";
+        "server multi channel support" = "yes";
 
         "server signing" = "auto";
         "client signing" = "auto";
@@ -55,6 +51,7 @@
         "delete veto files" = "no";
       };
       storage = {
+        # see also: ./mregerfs.nix
         path = "/mnt/storage";
         "read only" = "no";
         "guest ok" = "yes";
