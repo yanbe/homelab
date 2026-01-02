@@ -49,6 +49,10 @@
     hostId = "8425e349";
     firewall.enable = true;
     firewall.allowPing = true;
+    # 指定しないと enp2s0: dhcp_envoption 24.0/3: malformed embedded option エラーが journalctl に数秒おきに出力されてしまう
+    dhcpcd.extraConfig = ''
+      nooption path_mtu_aging_timeout
+    '';
   };
 
   services.openssh = {
