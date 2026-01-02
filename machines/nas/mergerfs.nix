@@ -2,8 +2,8 @@
 let
   # https://trapexit.github.io/mergerfs/latest/extended_usage_patterns/#tiered-cache
   # see also: ./disko.nix
-  cachedMountPoint = "/mnt/mergerfs/cached";
   backingMountPoint = "/mnt/mergerfs/backing";
+  cachedMountPoint = "/mnt/mergerfs/cached";
 
   mergerfsSSDRotatorScript = pkgs.writeShellApplication {
     name = "mergerfs-ssd-rotator";
@@ -12,16 +12,6 @@ let
       echo "Hello, mergerfsSSDRotatorScript!"
     '';
   };
-  cachedConf = pkgs.writeText "mergerfs-cached.conf" ''
-    branches=/mnt/ssd/*:/mnt/hdd/esata_pmp*=NC:/mnt/hdd/usb3_bot*=NC
-    mountpoint=${cachedMountPoint}
-    # TODO: ./ROMs は 各SSDに分散された状態を維持してSSDに対比させたくないので最初にディレクトリを作る
-    category.create=msppfrd
-    func.getattr=newest
-    minfreespace=5G
-    cache.files=partial
-    fsname=mergerfs-cached
-  '';
   backingConf =  pkgs.writeText "mergerfs-backing.conf" ''
     branches=/mnt/hdd/esata_pmp*:/mnt/hdd/usb3_bot* 
     mountpoint=${backingMountPoint}
@@ -32,6 +22,16 @@ let
     minfreespace=5G
     cache.files=partial
     fsname=mergerfs-backing
+  '';
+  cachedConf = pkgs.writeText "mergerfs-cached.conf" ''
+    branches=/mnt/ssd/*:/mnt/hdd/esata_pmp*=NC:/mnt/hdd/usb3_bot*=NC
+    mountpoint=${cachedMountPoint}
+    # TODO: ./ROMs は 各SSDに分散された状態を維持してSSDに対比させたくないので最初にディレクトリを作る
+    category.create=msppfrd
+    func.getattr=newest
+    minfreespace=5G
+    cache.files=partial
+    fsname=mergerfs-cached
   '';
 
   mergerfsCacheMoverScript = pkgs.writeShellApplication {
@@ -56,44 +56,6 @@ in {
     wantedBy = [ "multi-user.target" ];
     restartTriggers = [
       mergerfsSSDRotatorScript
-    ];
-  };
-
-  systemd.services.mergerfs-cached = {
-    enable = true;
-    description = "Mount MergerFS cached (SSDs in front of HDDs) storage pool";
-    path = [
-      pkgs.coreutils
-      pkgs.mergerfs
-      pkgs.fuse
-    ];
-    preStart = "mkdir -p ${cachedMountPoint}";
-    script = "mergerfs -f -o config=${cachedConf}";
-    postStop = "fusermount -uz ${cachedMountPoint} && rmdir -p ${cachedMountPoint}";
-    after = [
-      "mergerfs-ssd-rotator.service"
-
-      "mnt-hdd-esata_pmp_p0.mount"
-      "mnt-hdd-esata_pmp_p1.mount"
-      "mnt-hdd-esata_pmp_p2.mount"
-      "mnt-hdd-esata_pmp_p3.mount"
-
-      "mnt-hdd-esata_pmp_p5.mount"
-      "mnt-hdd-esata_pmp_p6.mount"
-      "mnt-hdd-esata_pmp_p7.mount"
-      "mnt-hdd-esata_pmp_p8.mount"
-
-      "mnt-hdd-usb3_bot_p0.mount"
-      "mnt-hdd-usb3_bot_p1.mount"
-      "mnt-hdd-usb3_bot_p2.mount"
-      "mnt-hdd-usb3_bot_p4.mount"
-    ];
-    wantedBy = [ "multi-user.target" ];
-    restartTriggers = [
-      pkgs.mergerfs
-      mergerfsSSDRotatorScript
-      cachedConf
-      cachedMountPoint
     ];
   };
 
@@ -129,6 +91,30 @@ in {
       pkgs.mergerfs
       backingConf
       backingMountPoint
+    ];
+  };
+  
+  systemd.services.mergerfs-cached = {
+    enable = true;
+    description = "Mount MergerFS cached (SSDs in front of HDDs) storage pool";
+    path = [
+      pkgs.coreutils
+      pkgs.mergerfs
+      pkgs.fuse
+    ];
+    preStart = "mkdir -p ${cachedMountPoint}";
+    script = "mergerfs -f -o config=${cachedConf}";
+    postStop = "fusermount -uz ${cachedMountPoint} && rmdir -p ${cachedMountPoint}";
+    after = [
+      "mergerfs-ssd-rotator.service"
+      "mergerfs-backing.service"
+    ];
+    wantedBy = [ "multi-user.target" ];
+    restartTriggers = [
+      pkgs.mergerfs
+      mergerfsSSDRotatorScript
+      cachedConf
+      cachedMountPoint
     ];
   };
 

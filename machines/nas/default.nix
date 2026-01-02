@@ -32,6 +32,7 @@
   environment.systemPackages = with pkgs; [
     mergerfs
     mergerfs-tools
+    tree
     lsof
     inotify-tools
 
