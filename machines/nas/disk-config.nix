@@ -29,6 +29,7 @@ let
                 "nodiratime"
                 "user_xattr"
                 "nofail"
+                "private"
               ];
             };
           };
@@ -63,6 +64,7 @@ let
                 "logbsize=256k"
                 "allocsize=512m"
                 "nofail"
+                "private"
               ];
             };
           };
@@ -147,6 +149,7 @@ in {
         "size=2G"
         "defaults"
         "mode=755"
+        "private"
       ];
     };
   };

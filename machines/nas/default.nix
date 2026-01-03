@@ -35,6 +35,7 @@
     tree
     lsof
     inotify-tools
+    rsync
 
     # hardware investigation & performance monitoring tools
     pciutils
