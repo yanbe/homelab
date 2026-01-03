@@ -4,8 +4,23 @@ let
   # see also: ./disko.nix
   backingMountPoint = "/mnt/mergerfs/backing";
   cachedMountPoint = "/mnt/mergerfs/cached";
-  ssdRotationThresholdUseInPercent = 2; # SSDの容量使用率がN%以上になったらbacking HDD poolへの退避プロセス(cache-mover)対象にする
+  hddReadaheadSize = 16384;  # 512B * x (16384 * 512 = 8MB)
+  ssdRotationThresholdUseInPercent = 75; # SSDの容量使用率がN%以上になったらbacking HDD poolへの退避プロセス(cache-mover)対象にする
   ssdRotationLockFile = "/var/lock/ssd-rotation.lock";
+  ssdDrainExcludes = "{'ROMs','Documents'}"; # rsync の --exclude オプション 。指定するとランダム読み書き性能が重要なアプリケーション（SyncThingなど）向けにHDDに退避せずSSDに置いたままにできる 
+  mergerfsHDDReadaheadScript = pkgs.writeShellApplication {
+    name = "mergerfs-hdd-readahead";
+    runtimeInputs = [
+      pkgs.util-linux
+    ];
+    text = ''
+      for dev in /dev/sd[b-z]; do
+        if [[ "$(cat /sys/block/"$(basename "$dev")"/queue/rotational)" == "1" ]]; then
+          blockdev --setra ${toString hddReadaheadSize} "$dev"
+        fi
+      done
+    '';
+  };
   mergerfsSSDRotatorScript = pkgs.writeShellApplication {
     name = "mergerfs-ssd-rotator";
     runtimeInputs = [
@@ -67,7 +82,10 @@ let
     mountpoint=${backingMountPoint}
     # TODO: 同じ接続内(eSATA PMP内 や USB BOT内)並行write/readはひどいボトルネックになるのでなるべく発生しないようにしたい
     #       ただし接続を共有しないストレージ間については平行アクセスをむしろ推奨したい→両接続に1つずつ手動でディレクトリをつくる
-    category.create=msppfrd
+    category.create=eppfrd
+    func.mkdir=msppfrd
+    func.rmdir=epall
+    func.rename=epall
     func.getattr=newest
     minfreespace=5G
     cache.files=partial
@@ -77,7 +95,10 @@ let
     branches=/mnt/ssd-active/*:/mnt/ssd-cooldown/*=NC:/mnt/ssd-drain/*=RO:/mnt/hdd/esata_pmp*=NC:/mnt/hdd/usb3_bot*=NC
     mountpoint=${cachedMountPoint}
     # TODO: ./ROMs は 各SSDに分散された状態を維持してSSDに退避させたくないので最初にディレクトリを作る
-    category.create=epff
+    category.create=eppfrd
+    func.mkdir=epall
+    func.rmdir=epall
+    func.rename=epall
     func.getattr=newest
     minfreespace=5G
     cache.files=partial
@@ -106,7 +127,13 @@ let
         exit 0
       fi
 
-      find /mnt/ssd-{cooldown,drain}/* -type d  -mindepth 0 -maxdepth 0 2>/dev/null | awk 'BEGIN{FS="/"}{print $0,$4}' | while read -r curr_mountpoint name; do
+      drain_candidate_mountpoints=$(find /mnt/ssd-{cooldown,drain}/* -type d -mindepth 0 -maxdepth 0 2>/dev/null || true)
+      if [[ $drain_candidate_mountpoints == "" ]]; then
+        echo "no cooldown or drain SSDs exist. exiting" >&2
+        exit 0
+      fi
+
+      echo "$drain_candidate_mountpoints" | awk 'BEGIN{FS="/"}{print $0,$4}' | while read -r curr_mountpoint name; do
         if (( verbose )); then
           echo "checking opened files: $curr_mountpoint" >&2
         fi
@@ -137,7 +164,7 @@ let
           if (( verbose )); then
             echo "starting drain from $drain_mountpoint/ to ${backingMountPoint}/" >&2
           fi
-          rsync -a --remove-source-files "$drain_mountpoint"/ ${backingMountPoint}/
+          rsync -a --exclude=${ssdDrainExcludes} --remove-source-files "$drain_mountpoint"/ ${backingMountPoint}/
           find "$drain_mountpoint" -depth -type d -empty -not -path "$drain_mountpoint" -delete
 
           # Drainが完了したのでActive SSDとして再マウントする
@@ -169,15 +196,23 @@ in {
     enable = true;
     description = "Rotate SSD mountpoints based on their free space (service)";
     script = "${lib.getExe mergerfsSSDRotatorScript} -v";
-    after = [
-      "mnt-ssd-sata_p0.mount"
-      "mnt-ssd-sata_p1.mount"
-      "mnt-ssd-sata_p2.mount"
-      "mnt-ssd-sata_p3.mount"
-      "mnt-ssd-usb_uas_p5.mount"
-    ];
-    wantedBy = [ "multi-user.target" ];
-    reloadTriggers = [
+    #after = [
+    #  "mnt-ssd-sata_p0.mount"
+    #  "mnt-ssd-sata_p1.mount"
+    #  "mnt-ssd-sata_p2.mount"
+    #  "mnt-ssd-sata_p3.mount"
+    #  "mnt-ssd-usb3_uas_p5.mount"
+    #];
+    #wants = [
+    #  "mnt-ssd-sata_p0.mount"
+    #  "mnt-ssd-sata_p1.mount"
+    #  "mnt-ssd-sata_p2.mount"
+    #  "mnt-ssd-sata_p3.mount"
+    #  "mnt-ssd-usb3_uas_p5.mount"
+    #];
+
+    wantedBy = [ "local-fs.target" ];
+    restartTriggers = [
       mergerfsSSDRotatorScript
       cachedMountPoint
       ssdRotationLockFile
@@ -194,6 +229,55 @@ in {
     };
   };
 
+  systemd.services.mergerfs-hdd-readahead = {
+    enable = true;
+    description = "Set readahead parameters to HDDs";
+    script = lib.getExe mergerfsHDDReadaheadScript;
+    after = [
+      "mnt-hdd-sata_parity_p5.mount"
+
+      "mnt-hdd-esata_parity_pmp_p0.mount"
+      "mnt-hdd-esata_pmp_p1.mount"
+      "mnt-hdd-esata_pmp_p2.mount"
+      "mnt-hdd-esata_pmp_p3.mount"
+
+      "mnt-hdd-esata_pmp_p5.mount"
+      "mnt-hdd-esata_pmp_p6.mount"
+      "mnt-hdd-esata_pmp_p7.mount"
+      "mnt-hdd-esata_pmp_p8.mount"
+
+      "mnt-hdd-usb3_parity_bot_p0.mount"
+      "mnt-hdd-usb3_bot_p1.mount"
+      "mnt-hdd-usb3_bot_p2.mount"
+      "mnt-hdd-usb3_bot_p4.mount"
+    ];
+    wants = [
+      "mnt-hdd-sata_parity_p5.mount"
+
+      "mnt-hdd-esata_parity_pmp_p0.mount"
+      "mnt-hdd-esata_pmp_p1.mount"
+      "mnt-hdd-esata_pmp_p2.mount"
+      "mnt-hdd-esata_pmp_p3.mount"
+
+      "mnt-hdd-esata_pmp_p5.mount"
+      "mnt-hdd-esata_pmp_p6.mount"
+      "mnt-hdd-esata_pmp_p7.mount"
+      "mnt-hdd-esata_pmp_p8.mount"
+
+      "mnt-hdd-usb3_parity_bot_p0.mount"
+      "mnt-hdd-usb3_bot_p1.mount"
+      "mnt-hdd-usb3_bot_p2.mount"
+      "mnt-hdd-usb3_bot_p4.mount"
+
+    ];
+    restartTriggers = [
+      pkgs.util-linux
+      mergerfsHDDReadaheadScript
+      hddReadaheadSize
+    ];
+    wantedBy = [ "multi-user.target" ];
+  };
+
   systemd.services.mergerfs-backing = {
     enable = true;
     description = "Mount MergerFS internal backing (HDDs) storage pool";
@@ -206,29 +290,19 @@ in {
     script = "mergerfs -f -o config=${backingConf}";
     postStop = "fusermount -uz ${backingMountPoint} && rmdir -p ${backingMountPoint}";
     after = [
-      "mnt-hdd-esata_pmp_p0.mount"
-      "mnt-hdd-esata_pmp_p1.mount"
-      "mnt-hdd-esata_pmp_p2.mount"
-      "mnt-hdd-esata_pmp_p3.mount"
-
-      "mnt-hdd-esata_pmp_p5.mount"
-      "mnt-hdd-esata_pmp_p6.mount"
-      "mnt-hdd-esata_pmp_p7.mount"
-      "mnt-hdd-esata_pmp_p8.mount"
-
-      "mnt-hdd-usb3_bot_p0.mount"
-      "mnt-hdd-usb3_bot_p1.mount"
-      "mnt-hdd-usb3_bot_p2.mount"
-      "mnt-hdd-usb3_bot_p4.mount"
+      "mergerfs-hdd-readahead.service"
+    ];
+    wants = [
+      "mergerfs-hdd-readahead.service"
     ];
     wantedBy = [ "multi-user.target" ];
-    reloadTriggers = [
+    restartTriggers = [
       pkgs.mergerfs
       backingConf
       backingMountPoint
     ];
   };
-  
+
   systemd.services.mergerfs-cached = {
     enable = true;
     description = "Mount MergerFS cached (SSDs in front of HDDs) storage pool";
@@ -249,7 +323,7 @@ in {
       "mergerfs-backing.service"
     ];
     wantedBy = [ "multi-user.target" ];
-    reloadTriggers = [
+    restartTriggers = [
       pkgs.mergerfs
       mergerfsSSDRotatorScript
       cachedConf
@@ -268,10 +342,11 @@ in {
       "mergerfs-cached.service"
     ];
     wantedBy = [ "multi-user.target" ];
-    reloadTriggers = [
+    restartTriggers = [
       mergerfsCacheMoverScript
       cachedMountPoint
       ssdRotationLockFile
+      ssdDrainExcludes
     ];
   };
 

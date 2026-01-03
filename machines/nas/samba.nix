@@ -28,11 +28,14 @@
         security = "user";
 
         # 高速転送用
-        "aio read size" = 1;
-        "aio write size" = 1;
-        "use sendfile" = "no";
+        "aio read size" = "4M";
+        "aio write size" = "4M";
+        "use sendfile" = "yes";
         "strict sync" = "no";
         "sync always" = "no";
+        "durable handles" = "no";
+        "kernel oplocks" = "yes";
+        oplocks = "yes";
         "server multi channel support" = "yes";
 
         "server signing" = "auto";
@@ -50,17 +53,15 @@
         "veto files" = "/snapraid.*/";
         "delete veto files" = "no";
       };
-      media = {
+      Shared = {
         # see also: ./mergerfs.nix
         path = "/mnt/mergerfs/cached";
         "read only" = "no";
+        browseable = "yes";
+
         "guest ok" = "yes";
         "force user" = "root";
         "force group" = "root";
-
-        "strict locking" = "no";
-        oplocks = "no";
-        "kernel oplocks" = "no";
       };
     };
   };

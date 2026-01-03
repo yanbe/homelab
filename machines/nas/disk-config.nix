@@ -128,7 +128,7 @@ in {
     // hdd_xfs "sata_parity_p5" "/dev/disk/by-id/ata-ST2000DL003-9VT166_5YD5AHQ8"
 
     # 裸族のスカイタワー10BayはeSATA・USBともには自分の環境ではコントローラーごとに４台ずつ計８台までしか安定して認識されない
-    // hdd_xfs "esata_pmp_p0" "/dev/disk/by-id/ata-WDC_WD20EARS-00S8B1_WD-WCAVY2626056"
+    // hdd_xfs "esata_parity_pmp_p0" "/dev/disk/by-id/ata-WDC_WD20EARS-00S8B1_WD-WCAVY2626056"
     // hdd_xfs "esata_pmp_p1" "/dev/disk/by-id/ata-WDC_WD20EARS-00MVWB0_WD-WMAZA2671006"
     // hdd_xfs "esata_pmp_p2" "/dev/disk/by-id/ata-WDC_WD20EARS-00MVWB0_WD-WCAZA0260439"
     // hdd_xfs "esata_pmp_p3" "/dev/disk/by-id/ata-WDC_WD20EARS-00MVWB0_WD-WMAZA3492202"
