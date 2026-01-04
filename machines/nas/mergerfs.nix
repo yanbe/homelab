@@ -5,10 +5,46 @@ let
   backingMountPoint = "/mnt/mergerfs/backing";
   cachedMountPoint = "/mnt/mergerfs/cached";
   hddReadaheadSize = 16384;  # 512B * x (16384 * 512 = 8MB)
-  ssdRotationThresholdUseInPercent = 2; # SSDの容量使用率がN%以上になったらbacking HDD poolへの退避プロセス(cache-mover)対象にする
+  ssdRotationThresholdUseInPercent = 75; # SSDの容量使用率がN%以上になったらbacking HDD poolへの退避プロセス(cache-mover)対象にする
   ssdRotationLockFile = "/var/lock/ssd-rotate.lock";
   ssdDrainExcludes = "{'ROMs','Documents'}"; # rsync の --exclude オプション 。指定するとランダム読み書き性能が重要なアプリケーション（SyncThingなど）向けにHDDに退避せずSSDに置いたままにできる 
-  ssdDrainMinSize = "1m"; # このサイズ未満のファイルはSSDに保持したままにする。小さいファイルはSSDの容量をあまり圧迫しないし、HDDに移すことでランダムアクセス性能がボトルネックになるため。全部同期したければ0に
+  ssdDrainMinSize = "8m"; # このサイズ未満のファイルはSSDに保持したままにする。小さいファイルはSSDの容量をあまり圧迫しないし、HDDに移すことでランダムアクセス性能がボトルネックになるため。全部同期したければ0に
+  backingConf =  pkgs.writeText "mergerfs-backing.conf" ''
+    branches=/mnt/hdd/esata_pmp*:/mnt/hdd/usb3_bot* 
+    mountpoint=${backingMountPoint}
+    # TODO: 同じ接続内(eSATA PMP内 や USB BOT内)並行write/readはひどいボトルネックになるのでなるべく発生しないようにしたい
+    #       ただし接続を共有しないストレージ間については平行アクセスをむしろ推奨したい→両接続に1つずつ手動でディレクトリをつくる
+    category.create=msppfrd
+    minfreespace=10G
+    passthrough.io=rw
+    cache.files=partial
+    func.readdir=cor:5:2
+    readahead=8192
+    xattr=nosys
+    security-capability=false
+    cache.attr=3600
+    cache.readdir=true
+    async-read=false
+    fsname=mergerfs/backing
+  '';
+  cachedConf = pkgs.writeText "mergerfs-cached.conf" ''
+    # NOTE: /mnt/ssd/ は mergerfsSSDRotatorScript によって空き領域がチェックされた上で適切なモードで追加される 
+    branches=/mnt/hdd/esata_pmp*=NC:/mnt/hdd/usb3_bot*=NC
+    mountpoint=${cachedMountPoint}
+    # TODO: ./ROMs は 各SSDに分散された状態を維持してSSDに退避させたくないので最初にディレクトリを作る
+    category.create=ff
+    minfreespace=10G
+    passthrough.io=rw
+    cache.files=partial
+    func.readdir=cor:8:2
+    readahead=8192
+    xattr=noattr
+    security-capability=false
+    cache.attr=3600
+    cache.readdir=true
+    async-read=false
+    fsname=mergerfs/cached
+  '';
   mergerfsHDDReadaheadScript = pkgs.writeShellApplication {
     name = "mergerfs-hdd-readahead";
     runtimeInputs = [
@@ -96,26 +132,6 @@ let
       done
     '';
   };
-  backingConf =  pkgs.writeText "mergerfs-backing.conf" ''
-    branches=/mnt/hdd/esata_pmp*:/mnt/hdd/usb3_bot* 
-    mountpoint=${backingMountPoint}
-    # TODO: 同じ接続内(eSATA PMP内 や USB BOT内)並行write/readはひどいボトルネックになるのでなるべく発生しないようにしたい
-    #       ただし接続を共有しないストレージ間については平行アクセスをむしろ推奨したい→両接続に1つずつ手動でディレクトリをつくる
-    category.create=msppfrd
-    minfreespace=5G
-    cache.files=partial
-    fsname=mergerfs/backing
-  '';
-  cachedConf = pkgs.writeText "mergerfs-cached.conf" ''
-    # NOTE: /mnt/ssd/ は mergerfsSSDRotatorScript によって空き領域がチェックされた上で適切なモードで追加される 
-    branches=/mnt/hdd/esata_pmp*=NC:/mnt/hdd/usb3_bot*=NC
-    mountpoint=${cachedMountPoint}
-    # TODO: ./ROMs は 各SSDに分散された状態を維持してSSDに退避させたくないので最初にディレクトリを作る
-    category.create=pfrd
-    minfreespace=5G
-    cache.files=partial
-    fsname=mergerfs/cached
-  '';
 
   mergerfsCacheMoverScript = pkgs.writeShellApplication {
     name = "mergerfs-cache-mover";
