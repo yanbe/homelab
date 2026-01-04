@@ -1,4 +1,4 @@
-{ pkgs, config, ... }:
+{ pkgs, config, lib, ... }:
 let
   ssd_f2fs = name: device: {
     ${name} = {
@@ -24,6 +24,8 @@ let
                 "compress_chksum"
                 "atgc"
                 "gc_merge"
+                "background_gc=off"
+                "nodiscard" # services.fstrim で明示的に TRIMをおこなう
                 "lazytime"
                 "noatime"
                 "nodiratime"
@@ -54,12 +56,15 @@ let
                 # mkfs.xfs に渡す追加オプション
                 "-m" "crc=1"          # metadata CRC を有効化（推奨）
                 "-m" "finobt=1"       # free inode btree を有効化
+              ] ++ lib.lists.optionals (lib.hasInfix "pmp" name) [
+                "-d" "agcount=16"
               ];
               mountOptions = [
                 # マウント時のパフォーマンスオプション
                 "noatime"
                 "nodiratime"
                 "inode64"
+                "attr2"
                 "logbufs=8"
                 "logbsize=256k"
                 "allocsize=512m"
@@ -133,12 +138,12 @@ in {
     // hdd_xfs "esata_pmp_p2" "/dev/disk/by-id/ata-WDC_WD20EARS-00MVWB0_WD-WCAZA0260439"
     // hdd_xfs "esata_pmp_p3" "/dev/disk/by-id/ata-WDC_WD20EARS-00MVWB0_WD-WMAZA3492202"
 
-    // hdd_xfs "esata_pmp_p5" "/dev/disk/by-id/ata-SAMSUNG_HD203WI_S1UYJ1KSC06839"
+    // hdd_xfs "esata_parity_pmp_p5" "/dev/disk/by-id/ata-SAMSUNG_HD203WI_S1UYJ1KSC06839"
     // hdd_xfs "esata_pmp_p6" "/dev/disk/by-id/ata-WDC_WD20EARS-00MVWB0_WD-WCAZA0146677"
     // hdd_xfs "esata_pmp_p7" "/dev/disk/by-id/ata-SAMSUNG_HD203WI_S1UYJ1KSC07024"
     // hdd_xfs "esata_pmp_p8" "/dev/disk/by-id/ata-SAMSUNG_HD203WI_S1UYJ1KSC07059"
 
-    // hdd_xfs "usb3_parity_bot_p0" "/dev/disk/by-id/ata-SAMSUNG_HD203WI_S1UYJ1KSC07027"
+    // hdd_xfs "usb3_bot_p0" "/dev/disk/by-id/ata-SAMSUNG_HD203WI_S1UYJ1KSC07027"
     // hdd_xfs "usb3_bot_p1" "/dev/disk/by-id/ata-SAMSUNG_HD103SJ_S246JD6ZC02757"
     // hdd_xfs "usb3_bot_p2" "/dev/disk/by-id/ata-MB0500EBNCR_WMAYP0E80UEX"
     // hdd_xfs "usb3_bot_p4" "/dev/disk/by-id/ata-TOSHIBA_MK2565GSX_Z0KHC1TVT"

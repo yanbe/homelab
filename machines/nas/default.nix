@@ -62,6 +62,11 @@
     };
   };
 
+  services.fstrim = {
+    enable = true;
+    interval = "Sun *-*-* 03:00:00";
+  };
+
   services.iperf3 = {
     enable = true;
     openFirewall = true;

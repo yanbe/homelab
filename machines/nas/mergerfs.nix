@@ -5,9 +5,10 @@ let
   backingMountPoint = "/mnt/mergerfs/backing";
   cachedMountPoint = "/mnt/mergerfs/cached";
   hddReadaheadSize = 16384;  # 512B * x (16384 * 512 = 8MB)
-  ssdRotationThresholdUseInPercent = 75; # SSDの容量使用率がN%以上になったらbacking HDD poolへの退避プロセス(cache-mover)対象にする
-  ssdRotationLockFile = "/var/lock/ssd-rotation.lock";
+  ssdRotationThresholdUseInPercent = 2; # SSDの容量使用率がN%以上になったらbacking HDD poolへの退避プロセス(cache-mover)対象にする
+  ssdRotationLockFile = "/var/lock/ssd-rotate.lock";
   ssdDrainExcludes = "{'ROMs','Documents'}"; # rsync の --exclude オプション 。指定するとランダム読み書き性能が重要なアプリケーション（SyncThingなど）向けにHDDに退避せずSSDに置いたままにできる 
+  ssdDrainMinSize = "1m"; # このサイズ未満のファイルはSSDに保持したままにする。小さいファイルはSSDの容量をあまり圧迫しないし、HDDに移すことでランダムアクセス性能がボトルネックになるため。全部同期したければ0に
   mergerfsHDDReadaheadScript = pkgs.writeShellApplication {
     name = "mergerfs-hdd-readahead";
     runtimeInputs = [
@@ -27,52 +28,70 @@ let
       pkgs.coreutils
       pkgs.flock
       pkgs.gawk
-      pkgs.mount
       pkgs.mergerfs-tools
     ];
     text = ''
       cooldown_threshold=${toString ssdRotationThresholdUseInPercent} # ${toString ssdRotationThresholdUseInPercent}%以上で/mnt/ssd-cooldownにマウントポイントを移動する
-      [[ "$1" == "-v" ]] && verbose=1
-      base_dir=/mnt/ssd
-      if [[ ! -e $base_dir ]]; then
-        cur_status=-active
-      else
-        cur_status=
-      fi
-      cur_dir=$base_dir$cur_status
+      verbose=0
+      init=0
+      for arg in "$@"; do
+        if [[ $arg == "-v" ]]; then
+          verbose=1
+        fi
+        if [[ $arg == "--init" ]]; then
+          init=1
+        fi
+      done
 
+      mount_base_dir=/mnt/ssd
+      state_base_dir=/var/lib/ssd-rotate
+      mkdir -p $state_base_dir
+      
       lock=${ssdRotationLockFile}
       exec 9>$lock
       if ! flock -n -x 9; then
         echo "another script is already running for SSD rotation. exiting" >&2
         exit 0
       fi
-      df -P $cur_dir/* | awk 'NR>=2 {gsub("('$cur_dir'/|%)",""); print $6,$5}' | while IFS=' ' read -r name use; do
-        if (( use < cooldown_threshold )); then
-          next_status=-active
-          if (( verbose )); then
-            echo "$cur_dir/$name is $use% use (< $cooldown_threshold%). keeping active" >&2
-          fi
-        else
-          next_status=-cooldown
-          if (( verbose )); then
-            echo "$cur_dir/$name reached $use% use (>= $cooldown_threshold%). going cooldown" >&2
-          fi
-        fi
-        if [[ "$cur_status" != "$next_status" ]]; then
-          # ActiveからあらたにHDDに退避する準備が必要であることが分かったSSDに対する処理
-          # MergerFSが新たなcreateを受け付けないようにするため、一度branchesから取り除き、
-          if [[ $cur_status == "-active" && $next_status == "-cooldown" ]]; then
-            mergerfs.ctl -m ${cachedMountPoint} remove path $base_dir$cur_status/"$name"
-          fi
 
-          # /mnt/ssd-cooldown としてマウントしなおし、MergerFSのbranchとしても NC で追加する
-          mkdir -p $base_dir$next_status/"$name"
-          mount --move $base_dir$cur_status/"$name" $base_dir$next_status/"$name"
-          if [[ $cur_status == "-active" && $next_status == "-cooldown" ]]; then
-            mergerfs.ctl -m ${cachedMountPoint} add path $base_dir$next_status/"$name"=NC
+      # 起動時以外にも mergerfs-cached.service がリスタートするとSSDのbranch参加状態もリセットされるので、状態をリセットする
+      if (( init )); then
+        if (( verbose )); then
+          echo "called with --init option. initializing state" >&2
+        fi
+        rm -f $state_base_dir/*
+      fi
+
+      df -P $mount_base_dir/* | awk 'NR>=2 {gsub("('$mount_base_dir'/|%)",""); print $6,$5}' | while IFS=' ' read -r name use; do
+        cur_state=$(touch $state_base_dir/"$name" && cat $state_base_dir/"$name")
+        if [[ $cur_state == "drain" ]]; then
+          # drain 中のプロセスを強制終了した時などにここに来ることがある
+          if (( verbose )); then
+            echo "$mount_base_dir/$name is in drain state. skipping" >&2
           fi
-          rmdir -p --ignore-fail-on-non-empty $base_dir$cur_status/"$name"
+          continue
+        fi
+
+        if (( use < cooldown_threshold )); then
+          if (( verbose )); then
+            echo "$mount_base_dir/$name is $use% use (< $cooldown_threshold%). keeping active" >&2
+          fi
+          next_state=active
+        else
+          if (( verbose )); then
+            echo "$mount_base_dir/$name reached $use% use (>= $cooldown_threshold%). going cooldown" >&2
+          fi
+          next_state=cooldown
+        fi
+        if [[ $cur_state != "$next_state" ]]; then
+          mergerfs.ctl -m ${cachedMountPoint} remove path $mount_base_dir/"$name"
+          if [[ $next_state == "cooldown" ]]; then
+            next_mode=NC
+          else
+            next_mode=RW
+          fi
+          mergerfs.ctl -m ${cachedMountPoint} add path $mount_base_dir/"$name"="$next_mode"
+          echo "$next_state" > $state_base_dir/"$name"
         fi
       done
     '';
@@ -82,24 +101,17 @@ let
     mountpoint=${backingMountPoint}
     # TODO: 同じ接続内(eSATA PMP内 や USB BOT内)並行write/readはひどいボトルネックになるのでなるべく発生しないようにしたい
     #       ただし接続を共有しないストレージ間については平行アクセスをむしろ推奨したい→両接続に1つずつ手動でディレクトリをつくる
-    category.create=eppfrd
-    func.mkdir=msppfrd
-    func.rmdir=epall
-    func.rename=epall
-    func.getattr=newest
+    category.create=msppfrd
     minfreespace=5G
     cache.files=partial
     fsname=mergerfs/backing
   '';
   cachedConf = pkgs.writeText "mergerfs-cached.conf" ''
-    branches=/mnt/ssd-active/*:/mnt/ssd-cooldown/*=NC:/mnt/ssd-drain/*=RO:/mnt/hdd/esata_pmp*=NC:/mnt/hdd/usb3_bot*=NC
+    # NOTE: /mnt/ssd/ は mergerfsSSDRotatorScript によって空き領域がチェックされた上で適切なモードで追加される 
+    branches=/mnt/hdd/esata_pmp*=NC:/mnt/hdd/usb3_bot*=NC
     mountpoint=${cachedMountPoint}
     # TODO: ./ROMs は 各SSDに分散された状態を維持してSSDに退避させたくないので最初にディレクトリを作る
-    category.create=eppfrd
-    func.mkdir=epall
-    func.rmdir=epall
-    func.rename=epall
-    func.getattr=newest
+    category.create=pfrd
     minfreespace=5G
     cache.files=partial
     fsname=mergerfs/cached
@@ -112,13 +124,19 @@ let
       pkgs.flock
       pkgs.lsof
       pkgs.gawk
-      pkgs.mount
       pkgs.mergerfs-tools
       pkgs.rsync
     ];
     text = ''
-      [[ "$1" == "-v" ]] && verbose=1
-      base_dir=/mnt/ssd
+      verbose=0
+      for arg in "$@"; do
+        if [[ $arg == "-v" ]]; then
+          verbose=1
+        fi
+      done
+
+      mount_base_dir=/mnt/ssd
+      state_base_dir=/var/lib/ssd-rotate
 
       lock=${ssdRotationLockFile}
       exec 9>$lock
@@ -126,156 +144,73 @@ let
         echo "another script is already running for SSD rotation. exiting" >&2
         exit 0
       fi
+      find $state_base_dir/* -type f -maxdepth 0 -exec basename {} \; | while read -r name; do
+        cur_state=$(touch $state_base_dir/"$name" && cat $state_base_dir/"$name")
+        cur_mountpoint=$mount_base_dir/$name
+        if [[ $cur_state == "" ]]; then
+          echo "$cur_mountpoint 's state is uninitialized. skipping" >&2
+          continue
+        fi
 
-      drain_candidate_mountpoints=$(find /mnt/ssd-{cooldown,drain}/* -type d -mindepth 0 -maxdepth 0 2>/dev/null || true)
-      if [[ $drain_candidate_mountpoints == "" ]]; then
-        echo "no cooldown or drain SSDs exist. exiting" >&2
-        exit 0
-      fi
+        if [[ $cur_state == "active" ]]; then
+          echo "$cur_mountpoint is active state. skipping" >&2
+          continue
+        fi
+        # cooldown or (had canceled or aborted) drain
 
-      echo "$drain_candidate_mountpoints" | awk 'BEGIN{FS="/"}{print $0,$4}' | while read -r curr_mountpoint name; do
         if (( verbose )); then
-          echo "checking opened files: $curr_mountpoint" >&2
+          echo "checking mountpoint's file opening status: $cur_mountpoint ($cur_state)" >&2
         fi
-        if ! lsof +D "$curr_mountpoint" | grep -q .; then
-          next_status=-drain
+        
+        if lsof +D "$cur_mountpoint" | grep -q .; then
           if (( verbose )); then
-            echo "no one opening files under $curr_mountpoint . going drain" >&2
+            echo "someone is opening files under $cur_mountpoint . keeping $cur_state" >&2
           fi
-        else
-          next_status=-cooldown
-          if (( verbose )); then
-            echo "someone is opening files under $curr_mountpoint . keeping cooldown" >&2
-          fi
+          continue
         fi
 
-        if [[ $next_status == "-drain" ]]; then
-          drain_mountpoint=$base_dir$next_status/"$name"
-          if [[ $curr_mountpoint != "$drain_mountpoint" ]]; then
-            # /mnt/ssd-drain/$name としてマウントしなおし、MergerFSのbranchとしても RO で入れ替える
-            mergerfs.ctl -m ${cachedMountPoint} remove path "$curr_mountpoint"
-            mkdir -p "$drain_mountpoint"
-            mount --move "$curr_mountpoint" "$drain_mountpoint"
-            mergerfs.ctl -m ${cachedMountPoint} add path "$drain_mountpoint"=RO
-            rmdir -p --ignore-fail-on-non-empty "$curr_mountpoint"
-          fi
-
-          # これでdrain対象SSDへの書き込みはなくなったので、Drain(backing pool; HDD)への退避を開始する
-          if (( verbose )); then
-            echo "starting drain from $drain_mountpoint/ to ${backingMountPoint}/" >&2
-          fi
-          rsync -a --exclude=${ssdDrainExcludes} --remove-source-files "$drain_mountpoint"/ ${backingMountPoint}/
-          find "$drain_mountpoint" -depth -type d -empty -not -path "$drain_mountpoint" -delete
-
-          # Drainが完了したのでActive SSDとして再マウントする
-          if (( verbose )); then
-            echo "drain finished. now move mountpint $drain_mountpoint to active one" >&2
-          fi
-          mergerfs.ctl -m ${cachedMountPoint} remove path "$drain_mountpoint"
-          final_status=-active
-          active_mountpoint=$base_dir$final_status/"$name"
-
-          mkdir -p "$active_mountpoint"
-          mount --move "$drain_mountpoint" "$active_mountpoint"
-          rmdir -p --ignore-fail-on-non-empty "$drain_mountpoint"
-
-          if (( verbose )); then
-            echo "mountpoint is successfully promoted to $active_mountpoint . now going to back to active on MergerFS ${cachedMountPoint} branch" >&2
-          fi
-          mergerfs.ctl -m ${cachedMountPoint} add path "$active_mountpoint"
-
-          if (( verbose )); then
-            echo "$active_mountpoint is now active on MergerFS ${cachedMountPoint} again." >&2
-          fi
+        if (( verbose )); then
+          echo "no one opening files under $cur_mountpoint . going drain" >&2
         fi
+        echo drain > $state_base_dir/"$name"
+
+        if (( verbose )); then
+          echo "making MergerFS branch $cur_mountpoint read only." >&2
+        fi
+        mergerfs.ctl -m ${cachedMountPoint} remove path "$cur_mountpoint"
+        mergerfs.ctl -m ${cachedMountPoint} add path "$cur_mountpoint"=RO
+
+        # これでdrain対象SSDへの書き込みはなくなったので、Drain(backing pool; HDD)への退避を開始する
+        echo "starting drain from $cur_mountpoint/ to ${backingMountPoint}/" >&2
+
+        rsync -a --exclude=${ssdDrainExcludes} --min-size ${ssdDrainMinSize} --remove-source-files "$cur_mountpoint"/ ${backingMountPoint}/
+        find "$cur_mountpoint" -depth -type d -empty -not -path "$cur_mountpoint" -delete
+
+        # Drainが完了したのでActive SSDとして再マウントする
+        if (( verbose )); then
+          echo "drain finished. now move mountpint $cur_mountpoint to active one" >&2
+        fi
+        mergerfs.ctl -m ${cachedMountPoint} remove path "$cur_mountpoint"
+        mergerfs.ctl -m ${cachedMountPoint} add path "$cur_mountpoint"=RW
+
+        if (( verbose )); then
+          echo "$cur_mountpoint is now active branch on MergerFS ${cachedMountPoint} again." >&2
+        fi
+        echo active > $state_base_dir/"$name"
       done
     '';
   };
 in {
-  systemd.services.mergerfs-ssd-rotator = {
-    enable = true;
-    description = "Rotate SSD mountpoints based on their free space (service)";
-    script = "${lib.getExe mergerfsSSDRotatorScript} -v";
-    #after = [
-    #  "mnt-ssd-sata_p0.mount"
-    #  "mnt-ssd-sata_p1.mount"
-    #  "mnt-ssd-sata_p2.mount"
-    #  "mnt-ssd-sata_p3.mount"
-    #  "mnt-ssd-usb3_uas_p5.mount"
-    #];
-    #wants = [
-    #  "mnt-ssd-sata_p0.mount"
-    #  "mnt-ssd-sata_p1.mount"
-    #  "mnt-ssd-sata_p2.mount"
-    #  "mnt-ssd-sata_p3.mount"
-    #  "mnt-ssd-usb3_uas_p5.mount"
-    #];
-
-    wantedBy = [ "local-fs.target" ];
-    restartTriggers = [
-      mergerfsSSDRotatorScript
-      cachedMountPoint
-      ssdRotationLockFile
-      ssdRotationThresholdUseInPercent
-    ];
-  };
-  systemd.timers.mergerfs-ssd-rotator = {
-    enable = true;
-    description = "Rotate SSD mountpoints based on their free space (timer)";
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnUnitActiveSec = "1m";
-      Unit = "mergerfs-ssd-rotator.service";
-    };
-  };
-
   systemd.services.mergerfs-hdd-readahead = {
     enable = true;
     description = "Set readahead parameters to HDDs";
     script = lib.getExe mergerfsHDDReadaheadScript;
-    after = [
-      "mnt-hdd-sata_parity_p5.mount"
-
-      "mnt-hdd-esata_parity_pmp_p0.mount"
-      "mnt-hdd-esata_pmp_p1.mount"
-      "mnt-hdd-esata_pmp_p2.mount"
-      "mnt-hdd-esata_pmp_p3.mount"
-
-      "mnt-hdd-esata_pmp_p5.mount"
-      "mnt-hdd-esata_pmp_p6.mount"
-      "mnt-hdd-esata_pmp_p7.mount"
-      "mnt-hdd-esata_pmp_p8.mount"
-
-      "mnt-hdd-usb3_parity_bot_p0.mount"
-      "mnt-hdd-usb3_bot_p1.mount"
-      "mnt-hdd-usb3_bot_p2.mount"
-      "mnt-hdd-usb3_bot_p4.mount"
-    ];
-    wants = [
-      "mnt-hdd-sata_parity_p5.mount"
-
-      "mnt-hdd-esata_parity_pmp_p0.mount"
-      "mnt-hdd-esata_pmp_p1.mount"
-      "mnt-hdd-esata_pmp_p2.mount"
-      "mnt-hdd-esata_pmp_p3.mount"
-
-      "mnt-hdd-esata_pmp_p5.mount"
-      "mnt-hdd-esata_pmp_p6.mount"
-      "mnt-hdd-esata_pmp_p7.mount"
-      "mnt-hdd-esata_pmp_p8.mount"
-
-      "mnt-hdd-usb3_parity_bot_p0.mount"
-      "mnt-hdd-usb3_bot_p1.mount"
-      "mnt-hdd-usb3_bot_p2.mount"
-      "mnt-hdd-usb3_bot_p4.mount"
-
-    ];
+    wantedBy = [ "local-fs.target" ];
     restartTriggers = [
       pkgs.util-linux
       mergerfsHDDReadaheadScript
       hddReadaheadSize
     ];
-    wantedBy = [ "multi-user.target" ];
   };
 
   systemd.services.mergerfs-backing = {
@@ -289,13 +224,21 @@ in {
     preStart = "mkdir -p ${backingMountPoint}";
     script = "mergerfs -f -o config=${backingConf}";
     postStop = "fusermount -uz ${backingMountPoint} && rmdir -p ${backingMountPoint}";
-    after = [
-      "mergerfs-hdd-readahead.service"
+    unitConfig.WantsMountsFor = [
+      "/mnt/hdd/esata_pmp_p1"
+      "/mnt/hdd/esata_pmp_p2"
+      "/mnt/hdd/esata_pmp_p3"
+
+      "/mnt/hdd/esata_pmp_p6"
+      "/mnt/hdd/esata_pmp_p7"
+      "/mnt/hdd/esata_pmp_p8"
+
+      "/mnt/hdd/usb3_bot_p0"
+      "/mnt/hdd/usb3_bot_p1"
+      "/mnt/hdd/usb3_bot_p2"
+      "/mnt/hdd/usb3_bot_p4"
     ];
-    wants = [
-      "mergerfs-hdd-readahead.service"
-    ];
-    wantedBy = [ "multi-user.target" ];
+    wantedBy = [ "local-fs.target" ];
     restartTriggers = [
       pkgs.mergerfs
       backingConf
@@ -314,35 +257,65 @@ in {
     preStart = "mkdir -p ${cachedMountPoint}";
     script = "mergerfs -f -o config=${cachedConf}";
     postStop = "fusermount -uz ${cachedMountPoint} && rmdir -p ${cachedMountPoint}";
-    after = [
-      "mergerfs-ssd-rotator.service"
-      "mergerfs-backing.service"
-    ];
-    requires = [
-      "mergerfs-ssd-rotator.service"
-      "mergerfs-backing.service"
-    ];
-    wantedBy = [ "multi-user.target" ];
+    # mergerfs-backing.serviceの後の実行順とすることで、HDD群がマウント済みであることを間接的に保障している
+    after = [ "mergerfs-backing.service" ];
+    requires = [ "mergerfs-backing.service" ];
+    wantedBy = [ "local-fs.target" ];
     restartTriggers = [
       pkgs.mergerfs
-      mergerfsSSDRotatorScript
       cachedConf
       cachedMountPoint
     ];
+  };
+
+  systemd.services.mergerfs-ssd-rotator-init = {
+    enable = true;
+    description = "Rotate SSD mountpoints based on their free space (service)";
+    script = "${lib.getExe mergerfsSSDRotatorScript} -v --init";
+    unitConfig.WantsMountsFor = [
+      "/mnt/ssd/sata_p0"
+      "/mnt/ssd/sata_p1"
+      "/mnt/ssd/sata_p2"
+      "/mnt/ssd/sata_p3"
+      "/mnt/ssd/usb3_uas_p5"
+    ];
+    after = [
+      "mergerfs-cached.service"
+    ];
+    requires = [
+      "mergerfs-cached.service"
+    ];
+    wantedBy = [ "local-fs.target" ];
+  };
+
+  systemd.services.mergerfs-ssd-rotator-update = {
+    enable = true;
+    description = "Rotate SSD mountpoints based on their free space (service)";
+    script = "${lib.getExe mergerfsSSDRotatorScript} -v";
+    reloadTriggers = [
+      mergerfsSSDRotatorScript
+      cachedMountPoint
+      ssdRotationLockFile
+      ssdRotationThresholdUseInPercent
+    ];
+  };
+
+  systemd.timers.mergerfs-ssd-rotator-update = {
+    enable = true;
+    description = "Rotate SSD mountpoints based on their free space (timer)";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "2m";
+      OnUnitActiveSec = "1m";
+      Unit = "mergerfs-ssd-rotator-update.service";
+    };
   };
 
   systemd.services.mergerfs-cache-mover = {
     enable = true;
     description = "Drain files from cooldown SSDs to MergerFS backing storage pool (service)";
     script = "${lib.getExe mergerfsCacheMoverScript} -v";
-    after = [
-      "mergerfs-cached.service"
-    ];
-    requires = [
-      "mergerfs-cached.service"
-    ];
-    wantedBy = [ "multi-user.target" ];
-    restartTriggers = [
+    reloadTriggers = [
       mergerfsCacheMoverScript
       cachedMountPoint
       ssdRotationLockFile
@@ -355,6 +328,7 @@ in {
     description = "Drain files from cooldown SSDs to MergerFS backing storage pool (timer)";
     wantedBy = [ "timers.target" ];
     timerConfig = {
+      OnBootSec = "3m";
       OnUnitActiveSec = "3m";
       Unit = "mergerfs-cache-mover.service";
     };
