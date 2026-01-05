@@ -138,7 +138,7 @@ in {
     // hdd_xfs "esata_pmp_p2" "/dev/disk/by-id/ata-WDC_WD20EARS-00MVWB0_WD-WCAZA0260439"
     // hdd_xfs "esata_pmp_p3" "/dev/disk/by-id/ata-WDC_WD20EARS-00MVWB0_WD-WMAZA3492202"
 
-    // hdd_xfs "esata_parity_pmp_p5" "/dev/disk/by-id/ata-SAMSUNG_HD203WI_S1UYJ1KSC06839"
+    // hdd_xfs "esata_pmp_p5" "/dev/disk/by-id/ata-SAMSUNG_HD203WI_S1UYJ1KSC06839"
     // hdd_xfs "esata_pmp_p6" "/dev/disk/by-id/ata-WDC_WD20EARS-00MVWB0_WD-WCAZA0146677"
     // hdd_xfs "esata_pmp_p7" "/dev/disk/by-id/ata-SAMSUNG_HD203WI_S1UYJ1KSC07024"
     // hdd_xfs "esata_pmp_p8" "/dev/disk/by-id/ata-SAMSUNG_HD203WI_S1UYJ1KSC07059"

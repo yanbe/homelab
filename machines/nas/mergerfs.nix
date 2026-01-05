@@ -32,7 +32,7 @@ let
     branches=/mnt/hdd/esata_pmp*=NC:/mnt/hdd/usb3_bot*=NC
     mountpoint=${cachedMountPoint}
     # TODO: ./ROMs は 各SSDに分散された状態を維持してSSDに退避させたくないので最初にディレクトリを作る
-    category.create=ff
+    category.create=lus
     minfreespace=10G
     passthrough.io=rw
     cache.files=partial
@@ -245,6 +245,7 @@ in {
       "/mnt/hdd/esata_pmp_p2"
       "/mnt/hdd/esata_pmp_p3"
 
+      "/mnt/hdd/esata_pmp_p5"
       "/mnt/hdd/esata_pmp_p6"
       "/mnt/hdd/esata_pmp_p7"
       "/mnt/hdd/esata_pmp_p8"
