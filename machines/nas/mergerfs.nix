@@ -32,7 +32,7 @@ let
     branches=/mnt/hdd/esata_pmp*=NC:/mnt/hdd/usb3_bot*=NC
     mountpoint=${cachedMountPoint}
     # TODO: ./ROMs は 各SSDに分散された状態を維持してSSDに退避させたくないので最初にディレクトリを作る
-    category.create=lus
+    category.create=ff
     minfreespace=10G
     passthrough.io=rw
     cache.files=partial
@@ -45,19 +45,7 @@ let
     async-read=false
     fsname=mergerfs/cached
   '';
-  mergerfsHDDReadaheadScript = pkgs.writeShellApplication {
-    name = "mergerfs-hdd-readahead";
-    runtimeInputs = [
-      pkgs.util-linux
-    ];
-    text = ''
-      for dev in /dev/sd[b-z]; do
-        if [[ "$(cat /sys/block/"$(basename "$dev")"/queue/rotational)" == "1" ]]; then
-          blockdev --setra ${toString hddReadaheadSize} "$dev"
-        fi
-      done
-    '';
-  };
+
   mergerfsSSDRotatorScript = pkgs.writeShellApplication {
     name = "mergerfs-ssd-rotator";
     runtimeInputs = [
@@ -132,14 +120,12 @@ let
       done
     '';
   };
-
   mergerfsCacheMoverScript = pkgs.writeShellApplication {
     name = "mergerfs-cache-mover";
     runtimeInputs = [
       pkgs.coreutils
       pkgs.flock
       pkgs.lsof
-      pkgs.gawk
       pkgs.mergerfs-tools
       pkgs.rsync
     ];
@@ -217,21 +203,18 @@ let
     '';
   };
 in {
-  systemd.services.mergerfs-hdd-readahead = {
-    enable = true;
-    description = "Set readahead parameters to HDDs";
-    script = lib.getExe mergerfsHDDReadaheadScript;
-    wantedBy = [ "local-fs.target" ];
-    restartTriggers = [
-      pkgs.util-linux
-      mergerfsHDDReadaheadScript
-      hddReadaheadSize
-    ];
-  };
-
   systemd.services.mergerfs-backing = {
     enable = true;
     description = "Mount MergerFS internal backing (HDDs) storage pool";
+    after = [ 
+      "local-fs.target"
+      "network.target"
+    ];
+    serviceConfig = {
+      Type = "simple";
+      KillMode = "none";
+      Restart = "on-failure";
+    };
     path = [
       pkgs.coreutils
       pkgs.mergerfs
@@ -240,91 +223,53 @@ in {
     preStart = "mkdir -p ${backingMountPoint}";
     script = "mergerfs -f -o config=${backingConf}";
     postStop = "fusermount -uz ${backingMountPoint} && rmdir -p ${backingMountPoint}";
-    unitConfig.WantsMountsFor = [
-      "/mnt/hdd/esata_pmp_p1"
-      "/mnt/hdd/esata_pmp_p2"
-      "/mnt/hdd/esata_pmp_p3"
-
-      "/mnt/hdd/esata_pmp_p5"
-      "/mnt/hdd/esata_pmp_p6"
-      "/mnt/hdd/esata_pmp_p7"
-      "/mnt/hdd/esata_pmp_p8"
-
-      "/mnt/hdd/usb3_bot_p0"
-      "/mnt/hdd/usb3_bot_p1"
-      "/mnt/hdd/usb3_bot_p2"
-      "/mnt/hdd/usb3_bot_p4"
-    ];
-    wantedBy = [ "local-fs.target" ];
-    restartTriggers = [
-      pkgs.mergerfs
-      backingConf
-      backingMountPoint
-    ];
+    wantedBy = [ "default.target" ];
   };
 
   systemd.services.mergerfs-cached = {
     enable = true;
     description = "Mount MergerFS cached (SSDs in front of HDDs) storage pool";
+    after = [ 
+      "local-fs.target"
+      "network.target"
+    ];
+    serviceConfig = {
+      Type = "simple";
+      KillMode = "none";
+      Restart = "on-failure";
+    };
     path = [
       pkgs.coreutils
-      pkgs.mergerfs
+      pkgs.mergerfs 
       pkgs.fuse
     ];
     preStart = "mkdir -p ${cachedMountPoint}";
     script = "mergerfs -f -o config=${cachedConf}";
     postStop = "fusermount -uz ${cachedMountPoint} && rmdir -p ${cachedMountPoint}";
-    # mergerfs-backing.serviceの後の実行順とすることで、HDD群がマウント済みであることを間接的に保障している
-    after = [ "mergerfs-backing.service" ];
-    requires = [ "mergerfs-backing.service" ];
-    wantedBy = [ "local-fs.target" ];
-    restartTriggers = [
-      pkgs.mergerfs
-      cachedConf
-      cachedMountPoint
-    ];
+    wantedBy = [ "default.target" ];
   };
 
-  systemd.services.mergerfs-ssd-rotator-init = {
-    enable = true;
-    description = "Rotate SSD mountpoints based on their free space (service)";
-    script = "${lib.getExe mergerfsSSDRotatorScript} -v --init";
-    unitConfig.WantsMountsFor = [
-      "/mnt/ssd/sata_p0"
-      "/mnt/ssd/sata_p1"
-      "/mnt/ssd/sata_p2"
-      "/mnt/ssd/sata_p3"
-      "/mnt/ssd/usb3_uas_p5"
-    ];
-    after = [
-      "mergerfs-cached.service"
-    ];
-    requires = [
-      "mergerfs-cached.service"
-    ];
-    wantedBy = [ "local-fs.target" ];
-  };
-
-  systemd.services.mergerfs-ssd-rotator-update = {
+  systemd.services.mergerfs-ssd-rotator = {
     enable = true;
     description = "Rotate SSD mountpoints based on their free space (service)";
     script = "${lib.getExe mergerfsSSDRotatorScript} -v";
-    reloadTriggers = [
-      mergerfsSSDRotatorScript
-      cachedMountPoint
-      ssdRotationLockFile
-      ssdRotationThresholdUseInPercent
+    after = [
+      "mergerfs-cached.service"
     ];
+    serviceConfig = {
+      Type = "oneshot";
+    };
+    wantedBy = [ "default.target" ];
   };
 
-  systemd.timers.mergerfs-ssd-rotator-update = {
+  systemd.timers.mergerfs-ssd-rotator = {
     enable = true;
     description = "Rotate SSD mountpoints based on their free space (timer)";
     wantedBy = [ "timers.target" ];
     timerConfig = {
       OnBootSec = "2m";
       OnUnitActiveSec = "1m";
-      Unit = "mergerfs-ssd-rotator-update.service";
+      Unit = "mergerfs-ssd-rotator.service";
     };
   };
 
@@ -332,12 +277,9 @@ in {
     enable = true;
     description = "Drain files from cooldown SSDs to MergerFS backing storage pool (service)";
     script = "${lib.getExe mergerfsCacheMoverScript} -v";
-    reloadTriggers = [
-      mergerfsCacheMoverScript
-      cachedMountPoint
-      ssdRotationLockFile
-      ssdDrainExcludes
-    ];
+    serviceConfig = {
+      Type = "oneshot";
+    };
   };
 
   systemd.timers.mergerfs-cache-mover = {
@@ -350,5 +292,4 @@ in {
       Unit = "mergerfs-cache-mover.service";
     };
   };
-
 }

@@ -1,5 +1,20 @@
 { config, pkgs, lib, inputs, ... }:
-{
+let 
+  x540IrqAffinityScript = pkgs.writeShellApplication {
+   name = "x540-irq-affinity";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.ethtool
+    ];
+   text = ''
+    find /sys/class/net/enp2s0/device/msi_irqs/* -exec basename {} \; | while IFS= read -r irq; do
+      echo 1 > /proc/irq/"$irq"/smp_affinity
+      echo set /proc/irq/"$irq"/smp_affinity to 1
+    done
+    ethtool -L enp2s0 combined 1
+    '';
+  };
+in {
   imports = [
     inputs.impermanence.nixosModules.impermanence
     inputs.disko.nixosModules.disko
@@ -27,6 +42,10 @@
 
     "vm.dirty_ratio" = 20;
     "vm.dirty_background_ratio" = 10;
+
+    "kernel.sched_autogroup_enabled" = 0;
+    "net.core.netdev_budget" = 600;
+    "net.core.netdev_budget_usecs" = 8000;
   };
 
   environment.systemPackages = with pkgs; [
@@ -47,12 +66,36 @@
     iperf3
   ];
 
+  services.udev.extraRules = ''
+    SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ACTION=="add", ATTR{queue/rotational}=="1", ATTR{queue/read_ahead_kb}="8192", ATTR{queue/scheduler}="mq-deadline"
+  '';
+
   networking = {
     hostName = "nas";
     hostId = "8425e349";
     firewall.enable = true;
     firewall.allowPing = true;
   };
+
+  systemd.services."irq-affinity-x540" = {
+    enable = true;
+    description = "Pin Intel X540 IRQs to CPU0";
+    after = [ 
+      "local-fs.target"
+      "network-online.target"
+    ];
+    script = "${lib.getExe x540IrqAffinityScript}";
+    serviceConfig = {
+      Type = "oneshot";
+    };
+    wantedBy = [ "default.target" ];
+  };
+
+  systemd.services.samba-smbd.serviceConfig = {
+    AllowedCPUs = "1";
+  };
+
+  services.irqbalance.enable = false;
 
   services.openssh = {
     enable = true;

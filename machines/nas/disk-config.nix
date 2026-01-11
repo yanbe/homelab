@@ -64,7 +64,6 @@ let
                 "noatime"
                 "nodiratime"
                 "inode64"
-                "attr2"
                 "logbufs=8"
                 "logbsize=256k"
                 "allocsize=512m"
