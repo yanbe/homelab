@@ -65,6 +65,8 @@
 
         "vfs objects" = "shadow_copy2";
         "shadow:snapdirseverywhere" = "yes";
+        "shadow:localtime" = "yes";
+        "shadow:format" = "@%Y.%m.%d-%H.%M.%S";
       };
     };
   };

@@ -219,7 +219,7 @@ let
         fi
       done
 
-      TZ=GMT inotifywait -r -e modify --format="%T %w" --timefmt "@GMT-%Y.%m.%d-%H.%M.%S" ${snapshotEnabledDirs} | while read -r snapshot_ts source_dir; do
+      inotifywait -r -e create,modify --exclude .snapshots --format="%T %w" --timefmt "@%Y.%m.%d-%H.%M.%S" ${snapshotEnabledDirs} | while read -r snapshot_ts source_dir; do
         (( verbose )) && echo "modification detected under $source_dir at $snapshot_ts" >&2
         snapshot_base_dir=""
         (( verbose )) && echo "determining snapshot base directory for $source_dir" >&2
@@ -236,14 +236,16 @@ let
                 exit 0
               fi
               (( verbose )) && echo "looking for last snapshot directory under $snapshot_base_dir to use as link-dest" >&2
-              last_snapshot_relative_dir=$(cd "$snapshot_base_dir" && mkdir -p .snapshots && cd .snapshots && find . -maxdepth 1 -name "@GMT-*" -type d 2>/dev/null | tail -n 1)
+              last_snapshot_relative_dir=$(cd "$snapshot_base_dir" && mkdir -p .snapshots && cd .snapshots && find . -maxdepth 1 -name "@*" -type d 2>/dev/null | tail -n 1)
               mkdir -p "$snapshot_dir"
+
+              sleep 2 # MergerfSのcache.entry と cache.negative-entry がデフォルト 1なのですぐrsyncすると新規ファイルが検知されないことがあるため少し待つ
               if [[ $last_snapshot_relative_dir != "" ]]; then
                 (( verbose )) && echo "found last snapshot directory at $last_snapshot_relative_dir" >&2
-                rsync -a --delete --link-dest=../"$last_snapshot_relative_dir" "$snapshot_base_dir" "$snapshot_dir"
+                rsync -a --delete --exclude .snapshots/ --link-dest=../"$last_snapshot_relative_dir" "$snapshot_base_dir" "$snapshot_dir"
               else
                 (( verbose )) && echo "no previous snapshot found under $snapshot_base_dir" >&2
-                rsync -a --delete "$snapshot_base_dir" "$snapshot_dir"
+                rsync -a --delete --exclude .snapshots/ "$snapshot_base_dir" "$snapshot_dir"
               fi
               (( verbose )) && echo "created snapshot at $snapshot_dir for modifications under $snapshot_base_dir" >&2
               exit 0
