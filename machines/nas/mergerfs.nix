@@ -9,6 +9,8 @@ let
   ssdRotationLockFile = "/var/lock/ssd-rotate.lock";
   ssdDrainExcludes = "{'ROMs','Documents'}"; # rsync の --exclude オプション 。指定するとランダム読み書き性能が重要なアプリケーション（SyncThingなど）向けにHDDに退避せずSSDに置いたままにできる 
   ssdDrainMinSize = "8m"; # このサイズ未満のファイルはSSDに保持したままにする。小さいファイルはSSDの容量をあまり圧迫しないし、HDDに移すことでランダムアクセス性能がボトルネックになるため。全部同期したければ0に
+  snapshotEnabledDirs = "/mnt/mergerfs/cached/Documents"; # Samba経由でshadow copyを有効にするために、rsyncによるスナップショットを有効にするディレクトリ。GLOB({Documents,Projects})で複数指定も可能
+  snapshotLockFile = "/var/lock/snapshot-on-modify.lock";
   backingConf =  pkgs.writeText "mergerfs-backing.conf" ''
     branches=/mnt/hdd/esata_pmp*:/mnt/hdd/usb3_bot* 
     mountpoint=${backingMountPoint}
@@ -202,6 +204,56 @@ let
       done
     '';
   };
+  snapshotOnModifyScript = pkgs.writeShellApplication {
+    name = "mergerfs-snapshot";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.inotify-tools
+      pkgs.rsync
+    ];
+    text = ''
+      verbose=0
+      for arg in "$@"; do
+        if [[ $arg == "-v" ]]; then
+          verbose=1
+        fi
+      done
+
+      TZ=GMT inotifywait -r -e modify --format="%T %w" --timefmt "@GMT-%Y.%m.%d-%H.%M.%S" ${snapshotEnabledDirs} | while read -r snapshot_ts source_dir; do
+        (( verbose )) && echo "modification detected under $source_dir at $snapshot_ts" >&2
+        snapshot_base_dir=""
+        (( verbose )) && echo "determining snapshot base directory for $source_dir" >&2
+        find ${snapshotEnabledDirs} -maxdepth 0 -type d | while read -r enabled_dir; do
+          while [[ "$source_dir" != "/" ]]; do
+            (( verbose )) && echo "checking if source dir $source_dir matches enabled dir $enabled_dir/" >&2
+            if [[ "$source_dir" == "$enabled_dir"/ ]]; then
+              snapshot_base_dir="$source_dir"
+              (( verbose )) && echo "determined snapshot base directory is $snapshot_base_dir" >&2
+              snapshot_dir="$snapshot_base_dir".snapshots/"$snapshot_ts"/
+              (( verbose )) && echo "checking if duplicated snapshot directory already exists at $snapshot_dir" >&2
+              if [[ -d "$snapshot_dir" ]]; then
+                (( verbose )) && echo "snapshot directory $snapshot_dir already exists. skipping" >&2
+                exit 0
+              fi
+              (( verbose )) && echo "looking for last snapshot directory under $snapshot_base_dir to use as link-dest" >&2
+              last_snapshot_relative_dir=$(cd "$snapshot_base_dir" && mkdir -p .snapshots && cd .snapshots && find . -maxdepth 1 -name "@GMT-*" -type d 2>/dev/null | tail -n 1)
+              mkdir -p "$snapshot_dir"
+              if [[ $last_snapshot_relative_dir != "" ]]; then
+                (( verbose )) && echo "found last snapshot directory at $last_snapshot_relative_dir" >&2
+                rsync -a --delete --link-dest=../"$last_snapshot_relative_dir" "$snapshot_base_dir" "$snapshot_dir"
+              else
+                (( verbose )) && echo "no previous snapshot found under $snapshot_base_dir" >&2
+                rsync -a --delete "$snapshot_base_dir" "$snapshot_dir"
+              fi
+              (( verbose )) && echo "created snapshot at $snapshot_dir for modifications under $snapshot_base_dir" >&2
+              exit 0
+            fi
+            source_dir=$(dirname "$source_dir")/
+          done
+        done
+      done
+    '';
+  };
 in {
   systemd.services.mergerfs-backing = {
     enable = true;
@@ -291,5 +343,19 @@ in {
       OnUnitActiveSec = "3m";
       Unit = "mergerfs-cache-mover.service";
     };
+  };
+
+  systemd.services.mergerfs-snapshot-on-modify = {
+    enable = true;
+    description = "Create snapshot on modification under specified directories";
+    script = "${lib.getExe snapshotOnModifyScript} -v";
+    after = [
+      "mergerfs-cached.service"
+    ];
+    serviceConfig = {
+      Type = "simple";
+      Restart = "always";
+    };
+    wantedBy = [ "default.target" ];
   };
 }

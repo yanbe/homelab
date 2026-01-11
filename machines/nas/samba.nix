@@ -62,6 +62,9 @@
         "guest ok" = "yes";
         "force user" = "root";
         "force group" = "root";
+
+        "vfs objects" = "shadow_copy2";
+        "shadow:snapdirseverywhere" = "yes";
       };
     };
   };
