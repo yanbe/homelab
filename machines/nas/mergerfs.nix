@@ -218,7 +218,7 @@ let
           verbose=1
         fi
       done
-
+      mkdir -p ${snapshotEnabledDirs}/.snapshots
       inotifywait -r -e create,modify --exclude .snapshots --format="%T %w" --timefmt "@%Y.%m.%d-%H.%M.%S" ${snapshotEnabledDirs} | while read -r snapshot_ts source_dir; do
         (( verbose )) && echo "modification detected under $source_dir at $snapshot_ts" >&2
         snapshot_base_dir=""

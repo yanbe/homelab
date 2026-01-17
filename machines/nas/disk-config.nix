@@ -145,7 +145,6 @@ in {
     // hdd_xfs "usb3_bot_p0" "/dev/disk/by-id/ata-SAMSUNG_HD203WI_S1UYJ1KSC07027"
     // hdd_xfs "usb3_bot_p1" "/dev/disk/by-id/ata-SAMSUNG_HD103SJ_S246JD6ZC02757"
     // hdd_xfs "usb3_bot_p2" "/dev/disk/by-id/ata-MB0500EBNCR_WMAYP0E80UEX"
-    // hdd_xfs "usb3_bot_p4" "/dev/disk/by-id/ata-TOSHIBA_MK2565GSX_Z0KHC1TVT"
     ;
     nodev."/" = {
       fsType = "tmpfs";

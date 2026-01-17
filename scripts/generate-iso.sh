@@ -1,0 +1,1 @@
+nix build --extra-experimental-features nix-command .#minimal-install-iso

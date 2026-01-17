@@ -31,5 +31,16 @@
       ];
       specialArgs = { inherit inputs; };
     };
+    nixosConfigurations.homelab = inputs.nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ./machines/homelab
+        ./machines/homelab/disk-config.nix
+        ./machines/homelab/mergerfs.nix
+        ./machines/homelab/snapraid.nix
+        ./machines/homelab/samba.nix
+      ];
+      specialArgs = { inherit inputs; };
+    };
   };
 }

@@ -21,7 +21,6 @@
       d13 = "/mnt/hdd/usb3_bot_p0/";
       d14 = "/mnt/hdd/usb3_bot_p1/";
       d15 = "/mnt/hdd/usb3_bot_p2/";
-      d17 = "/mnt/hdd/usb3_bot_p4/";
     };
     contentFiles = [
       "/mnt/hdd/esata_pmp_p1/snapraid.content"
