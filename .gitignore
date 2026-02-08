@@ -1,1 +1,5 @@
 machines/nas/facter.json
+machines/incus/facter.json
+machines/incus/dmidecode.txt
+machines/incus/recovery-key.txt
+secrets/*
