@@ -26,11 +26,6 @@
     nixosConfigurations.nas = inputs.nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
-        ({ pkgs, ... }: {
-          # 常に LTS (6.18系など) を使うようにすれば、
-          # unstable チャンネルの中でもカーネルの更新頻度が下がり、ビルド回数を減らせます
-          boot.kernelPackages = pkgs.linuxPackages_6_18;
-        })
         ./machines/nas
         ./machines/nas/kernel.nix
         ./machines/nas/disk-config.nix

@@ -1,0 +1,2 @@
+#!/bin/sh
+nix run github:nix-community/nixos-anywhere --extra-experimental-features 'nix-command flakes' -- --flake '.#incus' --generate-hardware-config nixos-facter ./machines/incus/facter.json --ssh-option StrictHostKeyChecking=no --ssh-option UserKnownHostsFile=/dev/null --phases kexec root@192.168.1.45

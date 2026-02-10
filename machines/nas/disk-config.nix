@@ -6,7 +6,7 @@ let
 
     # 1. 暗号化方式（Adiantum）の指定
     extraFormatArgs = [
-      "--cipher" "capi:adiantum(xchacha12,aes)-plain64"
+      "--cipher" "'capi:adiantum(xchacha12,aes)-plain64'"
       "--key-size" "256"
       "--iter-time" "2000" # パスワード照合時間を2秒に固定（N54Lの負荷軽減）
     ];
@@ -16,10 +16,7 @@ let
 
     settings = {
       allowDiscards = true;
-      keyFile = "/etc/luks-secret.password";
-
-      # 3. パフォーマンス最適化（CPU負荷を分散させず直接処理する）
-      # AES-NIがないCPUでは、コンテキストスイッチを減らすこれが非常に効きます
+      # keyFile = "/boot/luks-recovery.password";
       bypassWorkqueues = true;
     };
     content = innerContent;
@@ -135,7 +132,7 @@ in {
           partitions = {
             nix = {
               size = "100%";
-              content = luksLayout "usb3_ex" {
+              content = luksLayout "stick_usb3_ex" {
                 type = "filesystem";
                 format = "ext4";
                 mountpoint = "/nix";
@@ -186,12 +183,12 @@ in {
     directories = [
       "/var/lib/nixos"
       #"/var/log" # for boot truble investigation purpose only
+      "/var/lib/tpm"
     ];
     files = [
       "/etc/ssh/ssh_host_ed25519_key"
       "/etc/ssh/ssh_host_ed25519_key.pub"
       "/etc/ssh/ssh_host_rsa_key"
-      "/etc/ssh/ssh_host_rsa_key.pub"
       "/etc/ssh/ssh_host_rsa_key.pub"
       "/etc/tpm-luks-init-done"
     ];
