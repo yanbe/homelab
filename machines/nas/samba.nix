@@ -25,7 +25,6 @@
         "server role" = "standalone server";
         "netbios name" = "NAS";
         "server string" = "N54L ZFS Server";
-        security = "user";
 
         # 高速転送用
         "aio read size" = "4M";
@@ -41,10 +40,14 @@
         "server signing" = "auto";
         "client signing" = "auto";
 
-        # ゲストアクセス（家庭内向け）
+        # ゲストアクセス（家庭内向け）を無効化
         "guest account" = "nobody";
-        "map to guest" = "bad user";
+        "map to guest" = "never";
+        "security" = "user";
+        # root でのログインを明示的に許可（追加）
+        "invalid users" = [];
 
+        # 許可するネットワークを限定 [cite: 11]
         "hosts allow" = "192.168.0.0/16 127.0.0.1 localhost";
         "hosts deny" = "0.0.0.0/0";
 
@@ -59,7 +62,10 @@
         "read only" = "no";
         browseable = "yes";
 
-        "guest ok" = "yes";
+        "guest ok" = "no";
+        # 許可するユーザーを root に限定
+        "valid users" = "root";
+
         "force user" = "root";
         "force group" = "root";
 
