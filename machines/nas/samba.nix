@@ -14,7 +14,7 @@
   services.samba-wsdd = {
     enable = true;
     hostname = "NAS";
-    openFirewall = true;  
+    openFirewall = true;
   };
 
   services.samba = {
@@ -24,7 +24,6 @@
       global = {
         workgroup = "WORKGROUP";
         "server role" = "standalone server";
-        "strict sync" = "yes";
         "map to guest" = "never";
 
         "netbios name" = "NAS";
@@ -32,10 +31,17 @@
         "name resolve order" = "wins bcast host";
         "dns proxy" = "no";
 
-        # 高速転送用
-        "aio read size" = "4M";
-        "aio write size" = "4M";
+
+        "aio read size" = "1"; # 常に非同期読み込みを使用
+        "aio write size" = "1"; # 常に非同期書き込みを使用
+        "strict sync" = "no";
+        "socket options" = "TCP_NODELAY IPTOS_LOWDELAY";
+
+        "strict locking" = "no";
         "use sendfile" = "yes";
+
+        "ea support" = "yes";
+        "vfs objects" = "catia fruit streams_xattr";
 
         "sync always" = "no";
         "durable handles" = "no";
@@ -43,7 +49,10 @@
         oplocks = "yes";
         "server multi channel support" = "yes";
 
-        "server signing" = "auto";
+        # パケット署名を無効にして CPU 負荷を軽減
+        "server signing" = "no";
+        "ntlm auth" = "yes"; # 互換性のため
+
         "client signing" = "auto";
 
         # ゲストアクセス（家庭内向け）を無効化

@@ -33,8 +33,8 @@ let
     # NOTE: /mnt/ssd/ は mergerfsSSDRotatorScript によって空き領域がチェックされた上で適切なモードで追加される
     branches=/mnt/hdd/esata_pmp*=NC:/mnt/hdd/usb3_bot*=NC
     mountpoint=${cachedMountPoint}
-    # TODO: ./ROMs は 各SSDに分散された状態を維持してSSDに退避させたくないので最初にディレクトリを作る
-    category.create=ff
+    # TODO: SSDに維持したいファイルを転送する際は category.create=lus にし、が終わったらcategory.create=ffにする
+    category.create=lus
     minfreespace=10G
     passthrough.io=rw
     cache.files=partial

@@ -12,12 +12,18 @@ let
     ];
 
     # 2. 開封時のオプション
-    extraOpenArgs = [ "--allow-discards" ];
+    extraOpenArgs = [
+      "--allow-discards"
+      "--perf-no_read_workqueue"
+      "--perf-no_write_workqueue"
+    ];
 
     settings = {
       allowDiscards = true;
-      # keyFile = "/boot/luks-recovery.password";
-      bypassWorkqueues = true;
+      # bypassWorkqueues = true; # ← これをコメントアウトまたは削除します
+
+      # 以下の2つを追加することで、マルチコアでの並列暗号化を有効にします
+      crypttabExtraOpts = [ "same-cpu-crypt" "submit-from-read-cpu" ];
     };
     content = innerContent;
   };
@@ -41,18 +47,21 @@ let
               ];
               mountOptions = [
                 # f2fs マウント最適化パラメータ
-                "compress_algorithm=zstd"
-                "compress_chksum"
                 "atgc"
                 "gc_merge"
-                "background_gc=off"
+                "background_gc=on"
                 "nodiscard" # services.fstrim で明示的に TRIMをおこなう
+                "flush_merge"
                 "lazytime"
                 "noatime"
                 "nodiratime"
                 "user_xattr"
                 "nofail"
                 "private"
+                "inline_data"
+                "inline_dentry"
+                "active_logs=6"
+                "checkpoint_merge"
               ];
             };
           };
@@ -184,6 +193,7 @@ in {
       "/var/lib/nixos"
       #"/var/log" # for boot truble investigation purpose only
       "/var/lib/tpm"
+      "/var/lib/samba"
     ];
     files = [
       "/etc/ssh/ssh_host_ed25519_key"

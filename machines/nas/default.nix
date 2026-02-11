@@ -1,5 +1,5 @@
 { config, pkgs, lib, inputs, ... }:
-let 
+let
   tpmLuksInitScript = pkgs.writeShellApplication {
     name = "tpm-luks-init";
     runtimeInputs = with pkgs; [
@@ -39,7 +39,7 @@ let
       echo "Sealing key into TPM 1.2..."
       if tpm_sealdata -z -i "$RAW_KEY" -o "$SEALED_KEY"; then
         echo "Success: $SEALED_KEY created."
-        
+
         # 3. 完了したら「生」のファイル群を削除
         rm "$RAW_KEY"
         # リカバリパスワードは、TPMが壊れた時のために残すか消すか選べますが、
@@ -54,17 +54,20 @@ let
   };
   x540IrqAffinityScript = pkgs.writeShellApplication {
    name = "x540-irq-affinity";
-    runtimeInputs = [
-      pkgs.coreutils
-      pkgs.ethtool
-    ];
-   text = ''
+   runtimeInputs = [
+     pkgs.coreutils
+    pkgs.ethtool
+  ];
+  text = ''
+    ethtool -L enp2s0 combined 2
+
+    # 割り込みを特定のコアに固定せず、分散を許可する（またはコアごとに分ける）
+    # 一旦、すべてのコア(mask '3')で受け取れるようにするか、あるいは自動分散に任せる
     find /sys/class/net/enp2s0/device/msi_irqs/* -exec basename {} \; | while IFS= read -r irq; do
-      echo 1 > /proc/irq/"$irq"/smp_affinity
-      echo set /proc/irq/"$irq"/smp_affinity to 1
+      echo 3 > /proc/irq/"$irq"/smp_affinity
+      echo "Allowing IRQ $irq to use both CPUs (mask 3)"
     done
-    ethtool -L enp2s0 combined 1
-    '';
+   '';
   };
 in {
   imports = [
@@ -73,6 +76,8 @@ in {
   ];
 
   hardware.enableRedistributableFirmware = true;
+
+  powerManagement.cpuFreqGovernor = "performance";
 
   time.timeZone = "Asia/Tokyo";
 
@@ -101,7 +106,7 @@ in {
 
       # trousers (TSS) から tcsd デーモンをコピー
       copy_bin_and_libs ${pkgs.trousers}/sbin/tcsd
-      
+
       # (念のため) cryptsetup も含める (通常は自動で入りますが明示すると安心です)
       copy_bin_and_libs ${pkgs.cryptsetup}/bin/cryptsetup
     '';
@@ -149,25 +154,42 @@ in {
         RAW_KEY=$(tpm_unsealdata -z -i /mnt-boot/tpm-luks.key.sealed)
         if [ $? -eq 0 ] && [ -n "$RAW_KEY" ]; then
           echo "TPM-AUTO-UNLOCK: Unseal SUCCESS!"
+
+          # バックグラウンドプロセスのIDを管理する配列（POSIXシェル用）
+          PIDS=""
+
           for dev in /dev/disk/by-partlabel/disk-*; do
             if cryptsetup isLuks "$dev"; then
               # デバイスパスからラベル名を取得 (例: /dev/.../disk-stick_usb3_ex-nix -> disk-stick_usb3_ex-nix)
               LABEL="''${dev##*/}"
-              
+
               # 先頭の "disk-" を削除 (-> stick_usb3_ex-nix)
               TEMP_NAME="''${LABEL#disk-}"
-              
+
               # 最後のハイフンとその直後 (サフィックス) を削除 (-> stick_usb3_ex)
               # %-* は「最後に見つかるハイフンから後ろ」を切り捨てます
               BASE_NAME="''${TEMP_NAME%-*}"
-              
+
               # NixOSが期待するマッパー名を作成
               MAP_NAME="luks_''${BASE_NAME}"
-        
-              echo "TPM-AUTO-UNLOCK: Opening ''${dev} as ''${MAP_NAME}..."
-              echo -n "$RAW_KEY" | cryptsetup open "$dev" "$MAP_NAME" --key-file=-
+
+              echo "TPM-AUTO-UNLOCK: Starting open for $dev..."
+              # サブシェル内で実行し、バックグラウンドへ
+              (
+                # パイプ経由で鍵を渡し、標準入力を確実に閉じる
+                echo -n "$RAW_KEY" | cryptsetup open "$dev" "$MAP_NAME" --key-file=-
+                echo "TPM-AUTO-UNLOCK: Finished $MAP_NAME"
+              ) &
+              PIDS="$PIDS $!"
             fi
           done
+
+          # すべての cryptsetup プロセスが終了するまで待機
+          echo "TPM-AUTO-UNLOCK: Waiting for all disks to unlock..."
+          for pid in $PIDS; do
+            wait "$pid"
+          done
+
           unset RAW_KEY
         else
           echo "TPM-AUTO-UNLOCK: Unseal FAILED even with connection."
@@ -185,18 +207,27 @@ in {
     "usbcore.autosuspend=-1"
     "radeon.modeset=1"
     "video=VGA-1:1280x800@60"
+    # dm-crypt の書き込み/読み込みをマルチスレッド化
+    "dm_mod.use_blk_mq=y"
   ];
 
   hardware.firmware = [ pkgs.linux-firmware ];
   boot.kernel.sysctl = {
-    "net.core.rmem_max" = 268435456;
-    "net.core.wmem_max" = 268435456;
-    "net.ipv4.tcp_rmem" = "4096 87380 268435456";
-    "net.ipv4.tcp_wmem" = "4096 65536 268435456";
-    "net.core.netdev_max_backlog" = 5000;
+    "net.core.rmem_max" = 16777216;
+    "net.core.wmem_max" = 16777216;
 
-    "vm.dirty_ratio" = 20;
+    "net.ipv4.tcp_rmem" = "4096 87380 16777216";
+    "net.ipv4.tcp_wmem" = "4096 65536 16777216";
+    # ネットワークバックログのキューを増やす
+    "net.core.netdev_max_backlog" = 10000;
+    # 割り込み処理の並列性を高める
+    "net.core.dev_weight" = 64;
+
+    "vm.dirty_ratio" = 40; # メモリの40%までキャッシュを許可
     "vm.dirty_background_ratio" = 10;
+    # キャッシュの有効期限を短くして、早めにフラッシュさせる
+    "vm.dirty_expire_centisecs" = 500;
+    "vm.dirty_writeback_centisecs" = 100;
 
     "kernel.sched_autogroup_enabled" = 0;
     "net.core.netdev_budget" = 600;
@@ -232,6 +263,15 @@ in {
 
   services.udev.extraRules = ''
     SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ACTION=="add", ATTR{queue/rotational}=="1", ATTR{queue/read_ahead_kb}="8192", ATTR{queue/scheduler}="mq-deadline"
+
+    # SSD (sda, sdb等) に対してスケジューラを none に設定
+    ACTION=="add|change", KERNEL=="sd[a-z]|mmcblk[0-9]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="none"
+
+    # 書き込みリクエストのキューサイズを増やす (デフォルト128 -> 1024)
+    ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/nr_requests}="1024"
+
+    # 暗号化デバイスの先読みを大きくして I/O 回数を減らす
+    ACTION=="add|change", KERNEL=="dm-*", ATTR{queue/read_ahead_kb}="4096"
   '';
 
   networking = {
@@ -244,15 +284,52 @@ in {
   systemd.services."irq-affinity-x540" = {
     enable = true;
     description = "Pin Intel X540 IRQs to CPU0";
-    after = [ 
+
+    # after だけでなく、依存関係を明示的に追加して警告を解消
+    wants = [ "network-online.target" ];
+    after = [
       "local-fs.target"
       "network-online.target"
     ];
+
     script = "${lib.getExe x540IrqAffinityScript}";
+
     serviceConfig = {
       Type = "oneshot";
+      # 1回実行して成功したら、プロセスが終了しても「起動中」とみなす
+      RemainAfterExit = true;
     };
-    wantedBy = [ "default.target" ];
+
+    # default.target よりも multi-user.target の方がサーバー用途では一般的
+    wantedBy = [ "multi-user.target" ];
+  };
+
+  systemd.services."10gbe-optimization" = {
+    description = "Optimize Intel 10GbE NIC";
+    after = [ "network.target" ];
+    wantedBy = [ "multi-user.target" ];
+    script = ''
+      set +e
+
+      echo "Applying IRQ Coalescing (ixgbe compatible)..."
+      # ixgbeドライバ向けに、個別設定ではなく一括設定を試みます
+      # 値を 1 にするとドライバ側で「適応型（Adaptive）」として扱われる場合があります
+      ${pkgs.ethtool}/bin/ethtool -C enp2s0 rx-usecs 100 || echo "IRQ Coalescing failed, trying fallback..."
+      ${pkgs.ethtool}/bin/ethtool -C enp2s0 rx-usecs 1 || echo "Adaptive fallback failed"
+
+      echo "Setting MTU 9000..."
+      # ip コマンドに pkgs.iproute2 を使用
+      ${pkgs.iproute2}/bin/ip link set enp2s0 mtu 9000 || echo "MTU 9000 failed"
+
+      echo "Applying Offload settings..."
+      ${pkgs.ethtool}/bin/ethtool -K enp2s0 tso on gso on gro on lro on
+
+      set -e
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
   };
 
   systemd.services.tpm-luks-init = {
@@ -283,7 +360,7 @@ in {
       # 公開鍵の文字列をファイルとして書き出し、そのパスを渡す
       TrustedUserCAKeys = "${pkgs.writeText "ssh-ca-key.pub" ''
         ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFxXpsKHNwT8S6dzmNqsmNRRLFGw0Ss3RG1iHC+pWN6G NAS_SSH_CA
-        ''}";   
+        ''}";
       };
   };
 
