@@ -13,6 +13,7 @@
 
   services.samba-wsdd = {
     enable = true;
+    hostname = "NAS";
     openFirewall = true;  
   };
 
@@ -23,14 +24,19 @@
       global = {
         workgroup = "WORKGROUP";
         "server role" = "standalone server";
+        "strict sync" = "yes";
+        "map to guest" = "never";
+
         "netbios name" = "NAS";
         "server string" = "N54L ZFS Server";
+        "name resolve order" = "wins bcast host";
+        "dns proxy" = "no";
 
         # 高速転送用
         "aio read size" = "4M";
         "aio write size" = "4M";
         "use sendfile" = "yes";
-        "strict sync" = "no";
+
         "sync always" = "no";
         "durable handles" = "no";
         "kernel oplocks" = "yes";
@@ -42,7 +48,6 @@
 
         # ゲストアクセス（家庭内向け）を無効化
         "guest account" = "nobody";
-        "map to guest" = "never";
         "security" = "user";
         # root でのログインを明示的に許可（追加）
         "invalid users" = [];

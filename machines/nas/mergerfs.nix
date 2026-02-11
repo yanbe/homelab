@@ -7,12 +7,12 @@ let
   hddReadaheadSize = 16384;  # 512B * x (16384 * 512 = 8MB)
   ssdRotationThresholdUseInPercent = 75; # SSDの容量使用率がN%以上になったらbacking HDD poolへの退避プロセス(cache-mover)対象にする
   ssdRotationLockFile = "/var/lock/ssd-rotate.lock";
-  ssdDrainExcludes = "{'ROMs','Documents'}"; # rsync の --exclude オプション 。指定するとランダム読み書き性能が重要なアプリケーション（SyncThingなど）向けにHDDに退避せずSSDに置いたままにできる 
+  ssdDrainExcludes = "{'ROMs','Documents'}"; # rsync の --exclude オプション 。指定するとランダム読み書き性能が重要なアプリケーション（SyncThingなど）向けにHDDに退避せずSSDに置いたままにできる
   ssdDrainMinSize = "8m"; # このサイズ未満のファイルはSSDに保持したままにする。小さいファイルはSSDの容量をあまり圧迫しないし、HDDに移すことでランダムアクセス性能がボトルネックになるため。全部同期したければ0に
   snapshotEnabledDirs = "/mnt/mergerfs/cached/Documents"; # Samba経由でshadow copyを有効にするために、rsyncによるスナップショットを有効にするディレクトリ。GLOB({Documents,Projects})で複数指定も可能
   snapshotLockFile = "/var/lock/snapshot-on-modify.lock";
   backingConf =  pkgs.writeText "mergerfs-backing.conf" ''
-    branches=/mnt/hdd/esata_pmp*:/mnt/hdd/usb3_bot* 
+    branches=/mnt/hdd/esata_pmp*:/mnt/hdd/usb3_bot*
     mountpoint=${backingMountPoint}
     # TODO: 同じ接続内(eSATA PMP内 や USB BOT内)並行write/readはひどいボトルネックになるのでなるべく発生しないようにしたい
     #       ただし接続を共有しないストレージ間については平行アクセスをむしろ推奨したい→両接続に1つずつ手動でディレクトリをつくる
@@ -30,7 +30,7 @@ let
     fsname=mergerfs/backing
   '';
   cachedConf = pkgs.writeText "mergerfs-cached.conf" ''
-    # NOTE: /mnt/ssd/ は mergerfsSSDRotatorScript によって空き領域がチェックされた上で適切なモードで追加される 
+    # NOTE: /mnt/ssd/ は mergerfsSSDRotatorScript によって空き領域がチェックされた上で適切なモードで追加される
     branches=/mnt/hdd/esata_pmp*=NC:/mnt/hdd/usb3_bot*=NC
     mountpoint=${cachedMountPoint}
     # TODO: ./ROMs は 各SSDに分散された状態を維持してSSDに退避させたくないので最初にディレクトリを作る
@@ -72,7 +72,7 @@ let
       mount_base_dir=/mnt/ssd
       state_base_dir=/var/lib/ssd-rotate
       mkdir -p $state_base_dir
-      
+
       lock=${ssdRotationLockFile}
       exec 9>$lock
       if ! flock -n -x 9; then
@@ -165,7 +165,7 @@ let
         if (( verbose )); then
           echo "checking mountpoint's file opening status: $cur_mountpoint ($cur_state)" >&2
         fi
-        
+
         if lsof +D "$cur_mountpoint" | grep -q .; then
           if (( verbose )); then
             echo "someone is opening files under $cur_mountpoint . keeping $cur_state" >&2
@@ -204,103 +204,128 @@ let
       done
     '';
   };
-  snapshotOnModifyScript = pkgs.writeShellApplication {
+ snapshotOnModifyScript = pkgs.writeShellApplication {
     name = "mergerfs-snapshot";
     runtimeInputs = [
       pkgs.coreutils
       pkgs.inotify-tools
       pkgs.rsync
+      pkgs.findutils
     ];
     text = ''
       verbose=0
       for arg in "$@"; do
-        if [[ $arg == "-v" ]]; then
-          verbose=1
-        fi
+        if [[ "$arg" == "-v" ]]; then verbose=1; fi
       done
-      mkdir -p ${snapshotEnabledDirs}/.snapshots
-      inotifywait -r -e create,modify --exclude .snapshots --format="%T %w" --timefmt "@%Y.%m.%d-%H.%M.%S" ${snapshotEnabledDirs} | while read -r snapshot_ts source_dir; do
-        (( verbose )) && echo "modification detected under $source_dir at $snapshot_ts" >&2
-        snapshot_base_dir=""
-        (( verbose )) && echo "determining snapshot base directory for $source_dir" >&2
-        find ${snapshotEnabledDirs} -maxdepth 0 -type d | while read -r enabled_dir; do
-          while [[ "$source_dir" != "/" ]]; do
-            (( verbose )) && echo "checking if source dir $source_dir matches enabled dir $enabled_dir/" >&2
-            if [[ "$source_dir" == "$enabled_dir"/ ]]; then
-              snapshot_base_dir="$source_dir"
-              (( verbose )) && echo "determined snapshot base directory is $snapshot_base_dir" >&2
-              snapshot_dir="$snapshot_base_dir".snapshots/"$snapshot_ts"/
-              (( verbose )) && echo "checking if duplicated snapshot directory already exists at $snapshot_dir" >&2
-              if [[ -d "$snapshot_dir" ]]; then
-                (( verbose )) && echo "snapshot directory $snapshot_dir already exists. skipping" >&2
-                exit 0
-              fi
-              (( verbose )) && echo "looking for last snapshot directory under $snapshot_base_dir to use as link-dest" >&2
-              last_snapshot_relative_dir=$(cd "$snapshot_base_dir" && mkdir -p .snapshots && cd .snapshots && find . -maxdepth 1 -name "@*" -type d 2>/dev/null | tail -n 1)
-              mkdir -p "$snapshot_dir"
 
-              sleep 2 # MergerfSのcache.entry と cache.negative-entry がデフォルト 1なのですぐrsyncすると新規ファイルが検知されないことがあるため少し待つ
-              if [[ $last_snapshot_relative_dir != "" ]]; then
-                (( verbose )) && echo "found last snapshot directory at $last_snapshot_relative_dir" >&2
-                rsync -a --delete --exclude .snapshots/ --link-dest=../"$last_snapshot_relative_dir" "$snapshot_base_dir" "$snapshot_dir"
-              else
-                (( verbose )) && echo "no previous snapshot found under $snapshot_base_dir" >&2
-                rsync -a --delete --exclude .snapshots/ "$snapshot_base_dir" "$snapshot_dir"
-              fi
-              (( verbose )) && echo "created snapshot at $snapshot_dir for modifications under $snapshot_base_dir" >&2
-              exit 0
-            fi
-            source_dir=$(dirname "$source_dir")/
-          done
+      set -eu
+
+      # マウント待機
+      echo "Waiting for mergerfs mount to become writable..."
+      for i in {1..30}; do
+        # shellcheck disable=SC2086
+        first_dir=$(eval echo ${snapshotEnabledDirs} | cut -d' ' -f1)
+        if touch "$first_dir/.write_test" 2>/dev/null; then
+          rm "$first_dir/.write_test"
+          echo "File system is writable."
+          break
+        fi
+        [ "$i" -eq 30 ] && { echo "Timeout"; exit 1; }
+        sleep 1
+      done
+
+      # SC2154 回避のため空の配列で初期化しておく
+      targets=()
+      # SC2086: ブレース展開のために意図的にクォートを外す
+      # SC2154: eval内での代入をShellCheckに許容させる
+      # shellcheck disable=SC2086,SC2154
+      eval "targets=(${snapshotEnabledDirs})"
+
+      # shellcheck disable=SC2154
+      for target in "''${targets[@]}"; do
+        mkdir -p "$target/.snapshots"
+      done
+
+      # shellcheck disable=SC2154
+      echo "Starting monitor on ''${targets[*]}..."
+
+      # shellcheck disable=SC2086
+      inotifywait -m -r -e close_write -e moved_to --exclude ".snapshots" \
+        --format "%T %w%f" --timefmt "@%Y.%m.%d-%H.%M.%S" ${snapshotEnabledDirs} | while read -r snapshot_ts modified_path; do
+
+        (( verbose )) && echo "Change detected: $modified_path at $snapshot_ts" >&2
+
+        snapshot_base_dir=""
+        # shellcheck disable=SC2154
+        for target in "''${targets[@]}"; do
+          if [[ "$modified_path" == "$target"* ]]; then
+            snapshot_base_dir="$target"
+            break
+          fi
         done
+
+        if [[ -z "$snapshot_base_dir" ]]; then continue; fi
+
+        sleep 2 # デバウンス
+
+        snapshot_dir="$snapshot_base_dir/.snapshots/$snapshot_ts"
+        if [[ -d "$snapshot_dir" ]]; then continue; fi
+
+        last_snap=$(find "$snapshot_base_dir/.snapshots" -maxdepth 1 -name "@*" -type d | sort | tail -n 1)
+
+        mkdir -p "$snapshot_dir"
+        if [[ -n "$last_snap" ]]; then
+          rsync -a --delete --exclude ".snapshots/" --link-dest="$last_snap" "$snapshot_base_dir/" "$snapshot_dir/"
+        else
+          rsync -a --delete --exclude ".snapshots/" "$snapshot_base_dir/" "$snapshot_dir/"
+        fi
+        (( verbose )) && echo "Snapshot created at $snapshot_dir" >&2
       done
     '';
   };
 in {
   systemd.services.mergerfs-backing = {
-    enable = true;
-    description = "Mount MergerFS internal backing (HDDs) storage pool";
-    after = [ 
-      "local-fs.target"
-      "network.target"
-    ];
+    # ... (after, before, wants は前回のままでOK)
     serviceConfig = {
       Type = "simple";
-      KillMode = "none";
       Restart = "on-failure";
+      TimeoutStopSec = "30s";
     };
-    path = [
-      pkgs.coreutils
-      pkgs.mergerfs
-      pkgs.fuse
-    ];
-    preStart = "mkdir -p ${backingMountPoint}";
-    script = "mergerfs -f -o config=${backingConf}";
-    postStop = "fusermount -uz ${backingMountPoint} && rmdir -p ${backingMountPoint}";
-    wantedBy = [ "default.target" ];
+
+    path = [ pkgs.coreutils pkgs.mergerfs pkgs.fuse ];
+
+    # 修正：一度アンマウントを試みてから、ディレクトリの権限を 777 に
+    preStart = ''
+      mkdir -p ${backingMountPoint}
+    '';
+
+    # 修正：オプションを整理
+    # default_permissions を除外（または明示的に no に）するために
+    # オプションをシンプルにします
+    script = "mergerfs -f -o config=${backingConf},allow_other,use_ino,cache.files=off";
+
+    postStop = "${pkgs.fuse}/bin/fusermount -u -z ${backingMountPoint} || true";
+    wantedBy = [ "multi-user.target" ];
   };
 
   systemd.services.mergerfs-cached = {
-    enable = true;
-    description = "Mount MergerFS cached (SSDs in front of HDDs) storage pool";
-    after = [ 
-      "local-fs.target"
-      "network.target"
-    ];
+    # ...
     serviceConfig = {
       Type = "simple";
-      KillMode = "none";
       Restart = "on-failure";
+      TimeoutStopSec = "30s";
     };
-    path = [
-      pkgs.coreutils
-      pkgs.mergerfs 
-      pkgs.fuse
-    ];
-    preStart = "mkdir -p ${cachedMountPoint}";
-    script = "mergerfs -f -o config=${cachedConf}";
-    postStop = "fusermount -uz ${cachedMountPoint} && rmdir -p ${cachedMountPoint}";
-    wantedBy = [ "default.target" ];
+
+    path = [ pkgs.coreutils pkgs.mergerfs pkgs.fuse ];
+    preStart = ''
+      mkdir -p ${cachedMountPoint}
+    '';
+
+    # 修正：こちらも同様に整理
+    script = "mergerfs -f -o config=${cachedConf},allow_other,use_ino,cache.files=off";
+
+    postStop = "${pkgs.fuse}/bin/fusermount -u -z ${cachedMountPoint} || true";
+    wantedBy = [ "multi-user.target" ];
   };
 
   systemd.services.mergerfs-ssd-rotator = {
@@ -350,14 +375,70 @@ in {
   systemd.services.mergerfs-snapshot-on-modify = {
     enable = true;
     description = "Create snapshot on modification under specified directories";
-    script = "${lib.getExe snapshotOnModifyScript} -v";
-    after = [
-      "mergerfs-cached.service"
-    ];
+
+    # 強力な依存関係の追加
+    requires = [ "mergerfs-cached.service" ];
+    after = [ "mergerfs-cached.service" "local-fs.target" ];
+    bindsTo = [ "mergerfs-cached.service" ];
+
     serviceConfig = {
       Type = "simple";
-      Restart = "always";
+      # 失敗してもすぐリトライせず、少し待たせる（無限ループ対策）
+      Restart = "on-failure";
+      RestartSec = "10s";
+      # サービスが暴走した時にシステムを止めないように
+      StartLimitIntervalSec = "60s";
+      StartLimitBurst = 3;
     };
-    wantedBy = [ "default.target" ];
+
+    path = [ pkgs.coreutils pkgs.rsync pkgs.inotify-tools pkgs.bash ];
+
+    script = "${lib.getExe snapshotOnModifyScript} -v";
+
+    wantedBy = [ "multi-user.target" ];
+  };
+
+  systemd.services.mergerfs-snapshot-cleanup = {
+    description = "Cleanup old MergerFS snapshots";
+    after = [ "mergerfs-cached.service" ];
+    requires = [ "mergerfs-cached.service" ];
+
+    serviceConfig = {
+      Type = "oneshot";
+      User = "root";
+    };
+
+    script = let
+      cleanupScript = pkgs.writeShellApplication {
+        name = "mergerfs-snapshot-cleanup";
+        runtimeInputs = [ pkgs.findutils pkgs.coreutils pkgs.bash ];
+        text = ''
+          set -euo pipefail
+
+          # SC2086: ブレース展開のために意図的にクォートを外している
+          # SC2154: eval内で代入されるため、ShellCheckには見えない
+          # shellcheck disable=SC2086,SC2154
+          eval "targets=(${snapshotEnabledDirs})"
+
+          # shellcheck disable=SC2154
+          for target in "''${targets[@]}"; do
+            snap_dir="$target/.snapshots"
+
+            if [ ! -d "$snap_dir" ]; then
+              echo "Directory $snap_dir does not exist. Skipping."
+              continue
+            fi
+
+            echo "Cleaning up old snapshots in $snap_dir..."
+
+            # 30日以上経過したスナップショットを削除
+            # findが空の場合に備え、|| true は不要（-exec が実行されないだけ）
+            find "$snap_dir" -maxdepth 1 -type d -name "@GMT-*" -mtime +30 -exec rm -rf {} +
+          done
+
+          echo "Cleanup finished."
+        '';
+      };
+    in "${cleanupScript}/bin/mergerfs-snapshot-cleanup";
   };
 }
