@@ -101,7 +101,13 @@ let
           (( verbose )) && echo "$mount_base_dir/$name reached $use% use (>= $cooldown_threshold%). going cooldown" >&2
           next_state=cooldown
         fi
-        if [[ $cur_state != "$next_state" ]]; then
+        path_present=0
+        if mergerfs.ctl -m ${cachedMountPoint} info | grep -Fq -- "- $mount_base_dir/$name"; then
+          path_present=1
+        fi
+
+        if [[ $cur_state != "$next_state" || $path_present -eq 0 ]]; then
+          (( verbose )) && [[ $path_present -eq 0 ]] && echo "$mount_base_dir/$name is missing from srcmounts. re-adding." >&2
           mergerfs.ctl -m ${cachedMountPoint} remove path $mount_base_dir/"$name"
           if [[ $next_state == "cooldown" ]]; then
             next_mode=NC
@@ -303,6 +309,7 @@ in {
 
     # 修正：こちらも同様に整理
     script = "mergerfs -f -o config=${cachedConf},allow_other,use_ino,cache.files=off";
+    postStart = "${lib.getExe mergerfsSSDRotatorScript} --init";
 
     postStop = "${pkgs.fuse}/bin/fusermount -u -z ${cachedMountPoint} || true";
     wantedBy = [ "multi-user.target" ];
