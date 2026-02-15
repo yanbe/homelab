@@ -24,8 +24,8 @@ let
     readahead=8192
     xattr=nosys
     security-capability=false
-    cache.attr=3600
-    cache.readdir=true
+    cache.attr=1
+    cache.readdir=false
     async-read=false
     fsname=mergerfs/backing
   '';
@@ -33,8 +33,8 @@ let
     # NOTE: /mnt/ssd/ は mergerfsSSDRotatorScript によって空き領域がチェックされた上で適切なモードで追加される
     branches=/mnt/hdd/esata_pmp*=NC:/mnt/hdd/usb3_bot*=NC
     mountpoint=${cachedMountPoint}
-    # TODO: SSDに維持したいファイルを転送する際は category.create=lus にし、が終わったらcategory.create=ffにする
-    category.create=lus
+    # TODO: SSDに維持したいファイルを転送する際は category.create=mfs にし、が終わったらcategory.create=ffにする
+    category.create=ff
     minfreespace=10G
     passthrough.io=rw
     cache.files=partial
@@ -42,8 +42,8 @@ let
     readahead=8192
     xattr=noattr
     security-capability=false
-    cache.attr=3600
-    cache.readdir=true
+    cache.attr=1
+    cache.readdir=false
     async-read=false
     fsname=mergerfs/cached
   '';
@@ -82,9 +82,7 @@ let
 
       # 起動時以外にも mergerfs-cached.service がリスタートするとSSDのbranch参加状態もリセットされるので、状態をリセットする
       if (( init )); then
-        if (( verbose )); then
-          echo "called with --init option. initializing state" >&2
-        fi
+        (( verbose )) && echo "called with --init option. initializing state" >&2
         rm -f $state_base_dir/*
       fi
 
@@ -92,21 +90,15 @@ let
         cur_state=$(touch $state_base_dir/"$name" && cat $state_base_dir/"$name")
         if [[ $cur_state == "drain" ]]; then
           # drain 中のプロセスを強制終了した時などにここに来ることがある
-          if (( verbose )); then
-            echo "$mount_base_dir/$name is in drain state. skipping" >&2
-          fi
+          (( verbose )) && echo "$mount_base_dir/$name is in drain state. skipping" >&2
           continue
         fi
 
         if (( use < cooldown_threshold )); then
-          if (( verbose )); then
-            echo "$mount_base_dir/$name is $use% use (< $cooldown_threshold%). keeping active" >&2
-          fi
+          (( verbose )) && echo "$mount_base_dir/$name is $use% use (< $cooldown_threshold%). keeping active" >&2
           next_state=active
         else
-          if (( verbose )); then
-            echo "$mount_base_dir/$name reached $use% use (>= $cooldown_threshold%). going cooldown" >&2
-          fi
+          (( verbose )) && echo "$mount_base_dir/$name reached $use% use (>= $cooldown_threshold%). going cooldown" >&2
           next_state=cooldown
         fi
         if [[ $cur_state != "$next_state" ]]; then
@@ -145,61 +137,49 @@ let
       lock=${ssdRotationLockFile}
       exec 9>$lock
       if ! flock -n -x 9; then
-        echo "another script is already running for SSD rotation. exiting" >&2
+        (( verbose )) && echo "another script is already running for SSD rotation. exiting" >&2
         exit 0
       fi
       find $state_base_dir/* -type f -maxdepth 0 -exec basename {} \; | while read -r name; do
         cur_state=$(touch $state_base_dir/"$name" && cat $state_base_dir/"$name")
         cur_mountpoint=$mount_base_dir/$name
         if [[ $cur_state == "" ]]; then
-          echo "$cur_mountpoint 's state is uninitialized. skipping" >&2
+          (( verbose )) && echo "$cur_mountpoint 's state is uninitialized. skipping" >&2
           continue
         fi
 
         if [[ $cur_state == "active" ]]; then
-          echo "$cur_mountpoint is active state. skipping" >&2
+          (( verbose )) && echo "$cur_mountpoint is active state. skipping" >&2
           continue
         fi
         # cooldown or (had canceled or aborted) drain
 
-        if (( verbose )); then
-          echo "checking mountpoint's file opening status: $cur_mountpoint ($cur_state)" >&2
-        fi
+        (( verbose )) && echo "checking mountpoint's file opening status: $cur_mountpoint ($cur_state)" >&2
 
         if lsof +D "$cur_mountpoint" | grep -q .; then
-          if (( verbose )); then
-            echo "someone is opening files under $cur_mountpoint . keeping $cur_state" >&2
-          fi
+          (( verbose )) && echo "someone is opening files under $cur_mountpoint . keeping $cur_state" >&2
           continue
         fi
 
-        if (( verbose )); then
-          echo "no one opening files under $cur_mountpoint . going drain" >&2
-        fi
+        (( verbose )) && echo "no one opening files under $cur_mountpoint . going drain" >&2
         echo drain > $state_base_dir/"$name"
 
-        if (( verbose )); then
-          echo "making MergerFS branch $cur_mountpoint read only." >&2
-        fi
+        (( verbose )) && echo "making MergerFS branch $cur_mountpoint read only." >&2
         mergerfs.ctl -m ${cachedMountPoint} remove path "$cur_mountpoint"
         mergerfs.ctl -m ${cachedMountPoint} add path "$cur_mountpoint"=RO
 
         # これでdrain対象SSDへの書き込みはなくなったので、Drain(backing pool; HDD)への退避を開始する
-        echo "starting drain from $cur_mountpoint/ to ${backingMountPoint}/" >&2
+        (( verbose )) && echo "starting drain from $cur_mountpoint/ to ${backingMountPoint}/" >&2
 
         rsync -a --exclude=${ssdDrainExcludes} --min-size ${ssdDrainMinSize} --remove-source-files "$cur_mountpoint"/ ${backingMountPoint}/
         find "$cur_mountpoint" -depth -type d -empty -not -path "$cur_mountpoint" -delete
 
         # Drainが完了したのでActive SSDとして再マウントする
-        if (( verbose )); then
-          echo "drain finished. now move mountpint $cur_mountpoint to active one" >&2
-        fi
+        (( verbose )) && echo "drain finished. now move mountpint $cur_mountpoint to active one" >&2
         mergerfs.ctl -m ${cachedMountPoint} remove path "$cur_mountpoint"
         mergerfs.ctl -m ${cachedMountPoint} add path "$cur_mountpoint"=RW
 
-        if (( verbose )); then
-          echo "$cur_mountpoint is now active branch on MergerFS ${cachedMountPoint} again." >&2
-        fi
+        (( verbose )) && echo "$cur_mountpoint is now active branch on MergerFS ${cachedMountPoint} again." >&2
         echo active > $state_base_dir/"$name"
       done
     '';
@@ -221,13 +201,13 @@ let
       set -eu
 
       # マウント待機
-      echo "Waiting for mergerfs mount to become writable..."
+      (( verbose )) && echo "Waiting for mergerfs mount to become writable..."
       for i in {1..30}; do
         # shellcheck disable=SC2086
         first_dir=$(eval echo ${snapshotEnabledDirs} | cut -d' ' -f1)
         if touch "$first_dir/.write_test" 2>/dev/null; then
           rm "$first_dir/.write_test"
-          echo "File system is writable."
+          (( verbose )) && echo "File system is writable."
           break
         fi
         [ "$i" -eq 30 ] && { echo "Timeout"; exit 1; }
@@ -247,7 +227,7 @@ let
       done
 
       # shellcheck disable=SC2154
-      echo "Starting monitor on ''${targets[*]}..."
+      (( verbose )) && echo "Starting monitor on ''${targets[*]}..."
 
       # shellcheck disable=SC2086
       inotifywait -m -r -e close_write -e moved_to --exclude ".snapshots" \
@@ -331,7 +311,7 @@ in {
   systemd.services.mergerfs-ssd-rotator = {
     enable = true;
     description = "Rotate SSD mountpoints based on their free space (service)";
-    script = "${lib.getExe mergerfsSSDRotatorScript} -v";
+    script = "${lib.getExe mergerfsSSDRotatorScript}";
     after = [
       "mergerfs-cached.service"
     ];
@@ -355,7 +335,7 @@ in {
   systemd.services.mergerfs-cache-mover = {
     enable = true;
     description = "Drain files from cooldown SSDs to MergerFS backing storage pool (service)";
-    script = "${lib.getExe mergerfsCacheMoverScript} -v";
+    script = "${lib.getExe mergerfsCacheMoverScript}";
     serviceConfig = {
       Type = "oneshot";
     };
@@ -393,7 +373,7 @@ in {
 
     path = [ pkgs.coreutils pkgs.rsync pkgs.inotify-tools pkgs.bash ];
 
-    script = "${lib.getExe snapshotOnModifyScript} -v";
+    script = "${lib.getExe snapshotOnModifyScript}";
 
     wantedBy = [ "multi-user.target" ];
   };
@@ -413,6 +393,11 @@ in {
         name = "mergerfs-snapshot-cleanup";
         runtimeInputs = [ pkgs.findutils pkgs.coreutils pkgs.bash ];
         text = ''
+          verbose=0
+          for arg in "$@"; do
+            if [[ "$arg" == "-v" ]]; then verbose=1; fi
+          done
+
           set -euo pipefail
 
           # SC2086: ブレース展開のために意図的にクォートを外している
@@ -425,11 +410,11 @@ in {
             snap_dir="$target/.snapshots"
 
             if [ ! -d "$snap_dir" ]; then
-              echo "Directory $snap_dir does not exist. Skipping."
+              (( verbose )) && echo "Directory $snap_dir does not exist. Skipping."
               continue
             fi
 
-            echo "Cleaning up old snapshots in $snap_dir..."
+            (( verbose )) && echo "Cleaning up old snapshots in $snap_dir..."
 
             # 30日以上経過したスナップショットを削除
             # findが空の場合に備え、|| true は不要（-exec が実行されないだけ）
