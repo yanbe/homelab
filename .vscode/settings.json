@@ -1,0 +1,9 @@
+{
+    "nix.enableLanguageServer": true,
+    "nix.serverPath": "/home/nixos/.nix-profile/bin/nil",
+    "nix.formatterPath": "/home/nixos/.nix-profile/bin/nixfmt",
+    "[nix]": {
+        "editor.defaultFormatter": "jnoortheen.nix-ide",
+        "editor.formatOnSave": true
+    }
+}

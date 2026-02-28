@@ -1,4 +1,3 @@
-{ pkgs , ... }:
 {
   services.avahi = {
     enable = true;
@@ -31,7 +30,6 @@
         "name resolve order" = "wins bcast host";
         "dns proxy" = "no";
 
-
         "aio read size" = "1"; # 常に非同期読み込みを使用
         "aio write size" = "1"; # 常に非同期書き込みを使用
         "strict sync" = "no";
@@ -59,7 +57,7 @@
         "guest account" = "nobody";
         "security" = "user";
         # root でのログインを明示的に許可（追加）
-        "invalid users" = [];
+        "invalid users" = [ ];
 
         # 許可するネットワークを限定 [cite: 11]
         "hosts allow" = "192.168.0.0/16 127.0.0.1 localhost";

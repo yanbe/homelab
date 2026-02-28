@@ -13,7 +13,18 @@
     nixos-facter-modules.url = "github:numtide/nixos-facter-modules";
     impermanence.url = "github:nix-community/impermanence";
   };
-  outputs = { self, ... } @inputs: {
+  outputs = { self, ... } @inputs: let
+    pkgs = import inputs.nixpkgs { system = "x86_64-linux"; };
+  in {
+    devShells.x86_64-linux.default = pkgs.mkShell {
+      packages = with pkgs; [
+        nil
+        nixfmt-rfc-style
+        shellcheck
+        bash-language-server
+      ];
+    };
+
     minimal-install-iso = inputs.nixos-generators.nixosGenerate {
       system = "x86_64-linux";
       modules = [ 

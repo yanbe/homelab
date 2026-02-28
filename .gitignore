@@ -2,3 +2,5 @@ machines/nas/facter.json
 machines/incus/facter.json
 secrets/*
 backups/secrets/*
+result/
+.direnv/
