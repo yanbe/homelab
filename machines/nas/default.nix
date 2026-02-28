@@ -76,28 +76,28 @@ in {
   ];
 
   hardware.enableRedistributableFirmware = true;
+  hardware.firmware = [ pkgs.linux-firmware ];
 
-  powerManagement.cpuFreqGovernor = "performance";
+  powerManagement.cpuFreqGovernor = "ondemand";
 
   time.timeZone = "Asia/Tokyo";
 
   nixpkgs.config.allowUnfree = true;
 
-  boot.loader.grub = {
-    enable = true;
-    gfxmodeBios = "1280x800";
-    extraConfig = ''
-      set gfxpayload=keep
-    '';
-    configurationLimit = 8;
-  };
-  nix.gc.automatic = true;
+  boot = {
+    loader.grub = {
+      enable = true;
+      gfxmodeBios = "1280x800";
+      extraConfig = ''
+        set gfxpayload=keep
+      '';
+      configurationLimit = 8;
+    };
 
-  boot.initrd.kernelModules = [ "tpm_tis" "radeon" ];
-
-  boot.initrd = {
-    # 1. TPM 1.2 と VFAT (boot) のマウントに必要なモジュールを強制追加
-    availableKernelModules = [ "tpm_tis" "uas" ];
+    initrd = {
+      kernelModules = [ "tpm_tis" "radeon" ];
+      # 1. TPM 1.2 と VFAT (boot) のマウントに必要なモジュールを強制追加
+      availableKernelModules = [ "tpm_tis" "uas" ];
 
     extraUtilsCommands = ''
       # 既存の tpm_unsealdata に加えて tpm_version を追加
@@ -201,40 +201,10 @@ in {
       kill $TCSD_PID
       umount /mnt-boot
     '';
+    };
   };
 
-  boot.kernelParams = [
-    "usbcore.autosuspend=-1"
-    "radeon.modeset=1"
-    "video=VGA-1:1280x800@60"
-    # dm-crypt の書き込み/読み込みをマルチスレッド化
-    "dm_mod.use_blk_mq=y"
-  ];
 
-  hardware.firmware = [ pkgs.linux-firmware ];
-  boot.kernel.sysctl = {
-    "net.core.rmem_max" = 16777216;
-    "net.core.wmem_max" = 16777216;
-
-    "net.ipv4.tcp_rmem" = "4096 87380 16777216";
-    "net.ipv4.tcp_wmem" = "4096 65536 16777216";
-    # ネットワークバックログのキューを増やす
-    "net.core.netdev_max_backlog" = 10000;
-    # 割り込み処理の並列性を高める
-    "net.core.dev_weight" = 64;
-
-    "vm.dirty_ratio" = 40; # メモリの40%までキャッシュを許可
-    "vm.dirty_background_ratio" = 10;
-    # キャッシュの有効期限を短くして、早めにフラッシュさせる
-    "vm.dirty_expire_centisecs" = 500;
-    "vm.dirty_writeback_centisecs" = 100;
-
-    "kernel.sched_autogroup_enabled" = 0;
-    "net.core.netdev_budget" = 600;
-    "net.core.netdev_budget_usecs" = 8000;
-  };
-
-  services.tcsd.enable = true;
 
   environment.systemPackages = with pkgs; [
     mergerfs
@@ -248,6 +218,7 @@ in {
     pciutils
     usbutils
     smartmontools
+    hdparm
     htop
     sysstat
     ethtool
@@ -261,8 +232,10 @@ in {
     rng-tools
   ];
 
-  services.udev.extraRules = ''
-    SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ACTION=="add", ATTR{queue/rotational}=="1", ATTR{queue/read_ahead_kb}="8192", ATTR{queue/scheduler}="mq-deadline"
+  services = {
+    udev.extraRules = ''
+      # HDD (回転メディア) に対してキューサイズを調整し、10分でスピンダウン
+      SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ACTION=="add", ATTR{queue/rotational}=="1", ATTR{queue/read_ahead_kb}="8192", ATTR{queue/scheduler}="mq-deadline", RUN+="${lib.getExe pkgs.hdparm} -S 120 /dev/%k"
 
     # SSD (sda, sdb等) に対してスケジューラを none に設定
     ACTION=="add|change", KERNEL=="sd[a-z]|mmcblk[0-9]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="none"
@@ -272,7 +245,36 @@ in {
 
     # 暗号化デバイスの先読みを大きくして I/O 回数を減らす
     ACTION=="add|change", KERNEL=="dm-*", ATTR{queue/read_ahead_kb}="4096"
-  '';
+    '';
+
+    tcsd.enable = true;
+
+    irqbalance.enable = false;
+
+    openssh = {
+      enable = true;
+      settings = {
+        # 1. root ログインを（証明書や鍵なら）許可する
+        PermitRootLogin = "prohibit-password";
+
+        # 2. 指定した CA 公開鍵で署名された証明書を信頼する
+        # 公開鍵の文字列をファイルとして書き出し、そのパスを渡す
+        TrustedUserCAKeys = "${pkgs.writeText "ssh-ca-key.pub" ''
+          ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFxXpsKHNwT8S6dzmNqsmNRRLFGw0Ss3RG1iHC+pWN6G NAS_SSH_CA
+          ''}";
+        };
+    };
+
+    fstrim = {
+      enable = true;
+      interval = "Sun *-*-* 03:00:00";
+    };
+
+    iperf3 = {
+      enable = true;
+      openFirewall = true;
+    };
+  };
 
   networking = {
     hostName = "nas";
@@ -281,97 +283,73 @@ in {
     firewall.allowPing = true;
   };
 
-  systemd.services."irq-affinity-x540" = {
-    enable = true;
-    description = "Pin Intel X540 IRQs to CPU0";
+  systemd.services = {
+    "irq-affinity-x540" = {
+      enable = true;
+      description = "Pin Intel X540 IRQs to CPU0";
 
-    # after だけでなく、依存関係を明示的に追加して警告を解消
-    wants = [ "network-online.target" ];
-    after = [
-      "local-fs.target"
-      "network-online.target"
-    ];
+      # after だけでなく、依存関係を明示的に追加して警告を解消
+      wants = [ "network-online.target" ];
+      after = [
+        "local-fs.target"
+        "network-online.target"
+      ];
 
-    script = "${lib.getExe x540IrqAffinityScript}";
+      script = "${lib.getExe x540IrqAffinityScript}";
 
-    serviceConfig = {
-      Type = "oneshot";
-      # 1回実行して成功したら、プロセスが終了しても「起動中」とみなす
-      RemainAfterExit = true;
-    };
-
-    # default.target よりも multi-user.target の方がサーバー用途では一般的
-    wantedBy = [ "multi-user.target" ];
-  };
-
-  systemd.services."10gbe-optimization" = {
-    description = "Optimize Intel 10GbE NIC";
-    after = [ "network.target" ];
-    wantedBy = [ "multi-user.target" ];
-    script = ''
-      set +e
-
-      echo "Applying IRQ Coalescing (ixgbe compatible)..."
-      # ixgbeドライバ向けに、個別設定ではなく一括設定を試みます
-      # 値を 1 にするとドライバ側で「適応型（Adaptive）」として扱われる場合があります
-      ${pkgs.ethtool}/bin/ethtool -C enp2s0 rx-usecs 100 || echo "IRQ Coalescing failed, trying fallback..."
-      ${pkgs.ethtool}/bin/ethtool -C enp2s0 rx-usecs 1 || echo "Adaptive fallback failed"
-
-      echo "Setting MTU 9000..."
-      # ip コマンドに pkgs.iproute2 を使用
-      ${pkgs.iproute2}/bin/ip link set enp2s0 mtu 9000 || echo "MTU 9000 failed"
-
-      echo "Applying Offload settings..."
-      ${pkgs.ethtool}/bin/ethtool -K enp2s0 tso on gso on gro on lro on
-
-      set -e
-    '';
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-  };
-
-  systemd.services.tpm-luks-init = {
-    description = "Initialize TPM LUKS Sealing";
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      ExecStart = "${tpmLuksInitScript}/bin/tpm-luks-init";
-      RemainAfterExit = true;
-    };
-    # 既に完了フラグがあれば動かないようにする設定
-    unitConfig.ConditionPathExists = "!/etc/tpm-luks-init-done";
-  };
-
-  systemd.services.samba-smbd.serviceConfig = {
-    AllowedCPUs = "1";
-  };
-
-  services.irqbalance.enable = false;
-
-  services.openssh = {
-    enable = true;
-    settings = {
-      # 1. root ログインを（証明書や鍵なら）許可する
-      PermitRootLogin = "prohibit-password";
-
-      # 2. 指定した CA 公開鍵で署名された証明書を信頼する
-      # 公開鍵の文字列をファイルとして書き出し、そのパスを渡す
-      TrustedUserCAKeys = "${pkgs.writeText "ssh-ca-key.pub" ''
-        ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFxXpsKHNwT8S6dzmNqsmNRRLFGw0Ss3RG1iHC+pWN6G NAS_SSH_CA
-        ''}";
+      serviceConfig = {
+        Type = "oneshot";
+        # 1回実行して成功したら、プロセスが終了しても「起動中」とみなす
+        RemainAfterExit = true;
       };
-  };
 
-  services.fstrim = {
-    enable = true;
-    interval = "Sun *-*-* 03:00:00";
-  };
+      # default.target よりも multi-user.target の方がサーバー用途では一般的
+      wantedBy = [ "multi-user.target" ];
+    };
 
-  services.iperf3 = {
-    enable = true;
-    openFirewall = true;
+    "10gbe-optimization" = {
+      description = "Optimize Intel 10GbE NIC";
+      after = [ "network.target" ];
+      wantedBy = [ "multi-user.target" ];
+      script = ''
+        set +e
+
+        echo "Applying IRQ Coalescing (ixgbe compatible)..."
+        # ixgbeドライバ向けに、個別設定ではなく一括設定を試みます
+        # 値を 1 にするとドライバ側で「適応型（Adaptive）」として扱われる場合があります
+        ${pkgs.ethtool}/bin/ethtool -C enp2s0 rx-usecs 100 || echo "IRQ Coalescing failed, trying fallback..."
+        ${pkgs.ethtool}/bin/ethtool -C enp2s0 rx-usecs 1 || echo "Adaptive fallback failed"
+
+        echo "Setting MTU 9000..."
+        # ip コマンドに pkgs.iproute2 を使用
+        ${pkgs.iproute2}/bin/ip link set enp2s0 mtu 9000 || echo "MTU 9000 failed"
+
+        echo "Applying Offload settings..."
+        ${pkgs.ethtool}/bin/ethtool -K enp2s0 tso on gso on gro on lro on
+
+        set -e
+      '';
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+    };
+
+    tpm-luks-init = {
+      description = "Initialize TPM LUKS Sealing";
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${tpmLuksInitScript}/bin/tpm-luks-init";
+        RemainAfterExit = true;
+      };
+      # 既に完了フラグがあれば動かないようにする設定
+      unitConfig.ConditionPathExists = "!/etc/tpm-luks-init-done";
+    };
+
+    samba-smbd.serviceConfig = {
+      AllowedCPUs = "1";
+    };
   };
 
   users = {
