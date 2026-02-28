@@ -20,8 +20,3 @@ fi
 cp ~/ssh-ca/ssh_ca_key.pub ./secrets/nas/etc/ssh/trusted-user-ca-keys.pem
 
 echo "Preparation complete. You can now run nixos-anywhere."
-
-# デスクトップPCの公開鍵を署名して、1日間有効な証明書を発行する例
-# -s: CA秘密鍵, -I: 識別子, -n: 許可するユーザー名, -V: 有効期限
-# cd ~/.ssh
-# ssh-keygen -s ssh_ca_key -I "user_access" -n root -V +1d ssh_ca_key.pub
