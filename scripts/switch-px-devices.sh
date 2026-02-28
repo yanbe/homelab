@@ -4,9 +4,9 @@ set -euo pipefail
 TARGET="${1:-}"
 
 if [[ -z "$TARGET" ]]; then
-  echo "Usage: $0 <target_instance_name>"
-  echo "Example: $0 win11-p2v"
-  exit 1
+	echo "Usage: $0 <target_instance_name>"
+	echo "Example: $0 win11-p2v"
+	exit 1
 fi
 
 PROJECT="default"
@@ -18,25 +18,25 @@ DEV0="px-w3pe"
 DEV1="px-q3pe"
 
 if [[ "$TARGET" != "$WIN_INSTANCE" && "$TARGET" != "$LINUX_INSTANCE" ]]; then
-  echo "Error: Target must be either '$WIN_INSTANCE' or '$LINUX_INSTANCE'."
-  exit 1
+	echo "Error: Target must be either '$WIN_INSTANCE' or '$LINUX_INSTANCE'."
+	exit 1
 fi
 
 if [[ "$TARGET" == "$WIN_INSTANCE" ]]; then
-  OTHER="$LINUX_INSTANCE"
+	OTHER="$LINUX_INSTANCE"
 else
-  OTHER="$WIN_INSTANCE"
+	OTHER="$WIN_INSTANCE"
 fi
 
 echo "Switching PCI tuners ($DEV0, $DEV1) to $TARGET..."
 
 # 1. Stop both instances if they are running (forcing to prevent host hang on graceful shutdown)
 for INST in "$TARGET" "$OTHER"; do
-  STATUS=$(incus info "$INST" --project "$PROJECT" 2>/dev/null | grep -i '^Status:' | awk '{print $2}' || true)
-  if [[ "$STATUS" == "Running" || "$STATUS" == "RUNNING" ]]; then
-    echo "Stopping $INST (forced)..."
-    incus stop "$INST" --project "$PROJECT" --force
-  fi
+	STATUS=$(incus info "$INST" --project "$PROJECT" 2>/dev/null | grep -i '^Status:' | awk '{print $2}' || true)
+	if [[ "$STATUS" == "Running" || "$STATUS" == "RUNNING" ]]; then
+		echo "Stopping $INST (forced)..."
+		incus stop "$INST" --project "$PROJECT" --force
+	fi
 done
 
 # 2. Detach from OTHER (ignore errors if not attached)

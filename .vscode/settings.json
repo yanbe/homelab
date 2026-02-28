@@ -1,9 +1,15 @@
 {
     "nix.enableLanguageServer": true,
     "nix.serverPath": "/home/nixos/.nix-profile/bin/nil",
-    "nix.formatterPath": "/home/nixos/.nix-profile/bin/nixfmt",
+    "nix.formatterPath": "nixfmt",
     "[nix]": {
         "editor.defaultFormatter": "jnoortheen.nix-ide",
         "editor.formatOnSave": true
-    }
+    },
+    "terminal.integrated.allowChords": false,
+    "terminal.integrated.commandsToSkipShell": [
+        "-workbench.action.quickOpen",
+        "-workbench.action.terminal.clear",
+        "-workbench.action.terminal.focusFind"
+    ]
 }

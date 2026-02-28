@@ -2,12 +2,17 @@
 
 {
   # 1. カーネルパッケージの定義と、ignoreConfigErrors の適用
-  boot.kernelPackages = pkgs.linuxPackages_6_18.extend (selfK: superK: {
-    kernel = superK.kernel.override { ignoreConfigErrors = true; };
-  });
+  boot.kernelPackages = pkgs.linuxPackages_6_18.extend (
+    selfK: superK: {
+      kernel = superK.kernel.override { ignoreConfigErrors = true; };
+    }
+  );
 
   # TPM 1.2 を扱うために必要なカーネルモジュール
-  boot.initrd.kernelModules = [ "tpm_tis" "tpm_infineon" ];
+  boot.initrd.kernelModules = [
+    "tpm_tis"
+    "tpm_infineon"
+  ];
 
   # 2. Adiantum を有効にするためのパッチ設定
   boot.kernelPatches = [

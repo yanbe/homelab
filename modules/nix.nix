@@ -1,9 +1,15 @@
 { config, ... }:
 {
   nix.settings = {
-    experimental-features = [ "nix-command" "flakes" ];
+    experimental-features = [
+      "nix-command"
+      "flakes"
+    ];
     auto-optimise-store = true;
-    trusted-users = [ "nixos" "yanbe" ];
+    trusted-users = [
+      "nixos"
+      "yanbe"
+    ];
     # Fallback to building from source when cache server is not accessible.
     fallback = true;
   };

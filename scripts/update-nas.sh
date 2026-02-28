@@ -1,4 +1,4 @@
-# 毎回 update しない！ 
+# 毎回 update しない！
 # アップデートしたい時だけ手動で `nix flake update` を叩く
 # sudo nix flake update --extra-experimental-features 'nix-command flakes'
 

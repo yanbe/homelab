@@ -1,4 +1,4 @@
-{ pkgs, config, lib, ... }:
+{ lib, ... }:
 let
   luksLayout = name: innerContent: {
     type = "luks";
@@ -6,9 +6,12 @@ let
 
     # 1. 暗号化方式（Adiantum）の指定
     extraFormatArgs = [
-      "--cipher" "'capi:adiantum(xchacha12,aes)-plain64'"
-      "--key-size" "256"
-      "--iter-time" "2000" # パスワード照合時間を2秒に固定（N54Lの負荷軽減）
+      "--cipher"
+      "'capi:adiantum(xchacha12,aes)-plain64'"
+      "--key-size"
+      "256"
+      "--iter-time"
+      "2000" # パスワード照合時間を2秒に固定（N54Lの負荷軽減）
     ];
 
     # 2. 開封時のオプション
@@ -23,7 +26,10 @@ let
       # bypassWorkqueues = true; # ← これをコメントアウトまたは削除します
 
       # 以下の2つを追加することで、マルチコアでの並列暗号化を有効にします
-      crypttabExtraOpts = [ "same-cpu-crypt" "submit-from-read-cpu" ];
+      crypttabExtraOpts = [
+        "same-cpu-crypt"
+        "submit-from-read-cpu"
+      ];
     };
     content = innerContent;
   };
@@ -84,10 +90,14 @@ let
               mountpoint = "/mnt/hdd/${name}";
               extraArgs = [
                 # mkfs.xfs に渡す追加オプション
-                "-m" "crc=1"          # metadata CRC を有効化（推奨）
-                "-m" "finobt=1"       # free inode btree を有効化
-              ] ++ lib.lists.optionals (lib.hasInfix "pmp" name) [
-                "-d" "agcount=16"
+                "-m"
+                "crc=1" # metadata CRC を有効化（推奨）
+                "-m"
+                "finobt=1" # free inode btree を有効化
+              ]
+              ++ lib.lists.optionals (lib.hasInfix "pmp" name) [
+                "-d"
+                "agcount=16"
               ];
               mountOptions = [
                 # マウント時のパフォーマンスオプション
@@ -106,7 +116,8 @@ let
       };
     };
   };
-in {
+in
+{
   disko.devices = {
     # {deviceType}_{connectionType}(_{specialUsage})(_{protocol})_{port}
     disk = {
@@ -134,7 +145,7 @@ in {
         };
       };
       stick_usb3_ex = {
-        device = "/dev/disk/by-id/usb-Logitec_LMD_USB_Device_5AA690500024A-0:0" ;
+        device = "/dev/disk/by-id/usb-Logitec_LMD_USB_Device_5AA690500024A-0:0";
         type = "disk";
         content = {
           type = "gpt";
@@ -174,8 +185,7 @@ in {
 
     // hdd_xfs "usb3_bot_p0" "/dev/disk/by-id/ata-SAMSUNG_HD203WI_S1UYJ1KSC07027"
     // hdd_xfs "usb3_bot_p1" "/dev/disk/by-id/ata-SAMSUNG_HD103SJ_S246JD6ZC02757"
-    // hdd_xfs "usb3_bot_p2" "/dev/disk/by-id/ata-MB0500EBNCR_WMAYP0E80UEX"
-    ;
+    // hdd_xfs "usb3_bot_p2" "/dev/disk/by-id/ata-MB0500EBNCR_WMAYP0E80UEX";
     nodev."/" = {
       fsType = "tmpfs";
       mountOptions = [

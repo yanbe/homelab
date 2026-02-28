@@ -1,4 +1,6 @@
-{ inputs, pkgs, lib, ... }:
+{
+  ...
+}:
 {
   # TODO: Increase tmpfs mount size on /nix/.rw-store
 
@@ -61,7 +63,7 @@
     };
     openFirewall = true;
   };
-  
+
   powerManagement.cpuFreqGovernor = "performance";
   zramSwap = {
     enable = true;
