@@ -48,4 +48,4 @@ log "FIDO auth check passed. Reusing SSH connection for nixos-rebuild."
 
 log "Running nixos-rebuild (normally no second touch prompt)."
 log "NIX_SSHOPTS: $NIX_SSHOPTS_VALUE"
-SSH_AUTH_SOCK= NIX_SSHOPTS="$NIX_SSHOPTS_VALUE" nixos-rebuild switch --flake .#nas --target-host "$TARGET_HOST"
+SSH_AUTH_SOCK=NIX_SSHOPTS="$NIX_SSHOPTS_VALUE" nixos-rebuild switch --flake .#nas --target-host "$TARGET_HOST"
