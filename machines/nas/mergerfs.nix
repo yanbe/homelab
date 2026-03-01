@@ -98,7 +98,30 @@ let
 in
 {
   systemd.services.mergerfs-backing = {
-    # ... (after, before, wants は前回のままでOK)
+    after = [
+      "mnt-hdd-esata_pmp_p1.mount"
+      "mnt-hdd-esata_pmp_p2.mount"
+      "mnt-hdd-esata_pmp_p3.mount"
+      "mnt-hdd-esata_pmp_p5.mount"
+      "mnt-hdd-esata_pmp_p6.mount"
+      "mnt-hdd-esata_pmp_p7.mount"
+      "mnt-hdd-esata_pmp_p8.mount"
+      "mnt-hdd-usb3_bot_p0.mount"
+      "mnt-hdd-usb3_bot_p1.mount"
+      "mnt-hdd-usb3_bot_p2.mount"
+    ];
+    wants = [
+      "mnt-hdd-esata_pmp_p1.mount"
+      "mnt-hdd-esata_pmp_p2.mount"
+      "mnt-hdd-esata_pmp_p3.mount"
+      "mnt-hdd-esata_pmp_p5.mount"
+      "mnt-hdd-esata_pmp_p6.mount"
+      "mnt-hdd-esata_pmp_p7.mount"
+      "mnt-hdd-esata_pmp_p8.mount"
+      "mnt-hdd-usb3_bot_p0.mount"
+      "mnt-hdd-usb3_bot_p1.mount"
+      "mnt-hdd-usb3_bot_p2.mount"
+    ];
     serviceConfig = {
       Type = "simple";
       Restart = "on-failure";
@@ -126,7 +149,40 @@ in
   };
 
   systemd.services.mergerfs-cached = {
-    # ...
+    after = [
+      "mnt-hdd-esata_pmp_p1.mount"
+      "mnt-hdd-esata_pmp_p2.mount"
+      "mnt-hdd-esata_pmp_p3.mount"
+      "mnt-hdd-esata_pmp_p5.mount"
+      "mnt-hdd-esata_pmp_p6.mount"
+      "mnt-hdd-esata_pmp_p7.mount"
+      "mnt-hdd-esata_pmp_p8.mount"
+      "mnt-hdd-usb3_bot_p0.mount"
+      "mnt-hdd-usb3_bot_p1.mount"
+      "mnt-hdd-usb3_bot_p2.mount"
+      "mnt-ssd-sata_p0.mount"
+      "mnt-ssd-sata_p1.mount"
+      "mnt-ssd-sata_p2.mount"
+      "mnt-ssd-sata_p3.mount"
+      "mnt-ssd-usb3_uas_p5.mount"
+    ];
+    wants = [
+      "mnt-hdd-esata_pmp_p1.mount"
+      "mnt-hdd-esata_pmp_p2.mount"
+      "mnt-hdd-esata_pmp_p3.mount"
+      "mnt-hdd-esata_pmp_p5.mount"
+      "mnt-hdd-esata_pmp_p6.mount"
+      "mnt-hdd-esata_pmp_p7.mount"
+      "mnt-hdd-esata_pmp_p8.mount"
+      "mnt-hdd-usb3_bot_p0.mount"
+      "mnt-hdd-usb3_bot_p1.mount"
+      "mnt-hdd-usb3_bot_p2.mount"
+      "mnt-ssd-sata_p0.mount"
+      "mnt-ssd-sata_p1.mount"
+      "mnt-ssd-sata_p2.mount"
+      "mnt-ssd-sata_p3.mount"
+      "mnt-ssd-usb3_uas_p5.mount"
+    ];
     serviceConfig = {
       Type = "simple";
       Restart = "on-failure";

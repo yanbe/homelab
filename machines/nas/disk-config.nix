@@ -201,7 +201,7 @@ in
     hideMounts = true;
     directories = [
       "/var/lib/nixos"
-      #"/var/log" # for boot truble investigation purpose only
+      "/var/log" # for boot truble investigation purpose only
       "/var/lib/tpm"
       "/var/lib/samba"
     ];

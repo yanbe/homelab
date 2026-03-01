@@ -39,6 +39,8 @@ in
   nixpkgs.config.allowUnfree = true;
 
   boot = {
+    kernelParams = [ "libata.force=5:noncq" ];
+
     loader.grub = {
       enable = true;
       gfxmodeBios = "1280x800";
@@ -94,6 +96,7 @@ in
     sysstat
     ethtool
     iperf3
+    tcpdump
 
     tpm-tools
     tpm-quote-tools
@@ -152,9 +155,28 @@ in
     hostId = "8425e349";
     firewall.enable = true;
     firewall.allowPing = true;
+    interfaces.enp4s0.wakeOnLan.enable = true;
   };
 
   systemd.services = {
+    "enable-wol-acpi" = {
+      description = "Enable ACPI Wake-On-Lan for PCI devices";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network.target" ];
+      script = ''
+        for dev in PCE4 PCE6; do
+          if grep -q "$dev.*disabled" /proc/acpi/wakeup; then
+            echo $dev > /proc/acpi/wakeup
+            echo "Enabled ACPI wakeup for $dev"
+          fi
+        done
+      '';
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+    };
+
     "irq-affinity-x540" = {
       enable = true;
       description = "Pin Intel X540 IRQs to CPU0";
@@ -211,14 +233,10 @@ in
     };
   };
 
-  users = {
-    # mutableUsers = false;
-    # users.root = {
-    #   hashedPassword = "$y$j9T$F41h0lJQ.fQ5IcsRjdM/g0$kb9vTzYh.9LMj4yUnN4AnVzEG/sWGG9cJRwpIdFoM7D";
-    #   openssh.authorizedKeys.keys = [
-    #     "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBAxFVnSmn+31h/6+/XqAmRDxD5pdIBNlDAmLiETajdEI+RsqSRj+mEu3ibK30NNE/32HBk45u4iYOrknSeVmW/k="
-    #   ];
-    # };
+  users.users.root = {
+    openssh.authorizedKeys.keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDg/I8PnP4P9EBVTazW1oL1E8rYj0dzQ0bHQ3k8a06wu nas-automation"
+    ];
   };
 
   # system.stateVersion = "25.11";
