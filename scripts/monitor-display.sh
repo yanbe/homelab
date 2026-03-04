@@ -68,6 +68,7 @@ while true; do
                 # Reuses the same root automation key.
                 if ssh -o BatchMode=yes -o ConnectTimeout=5 -o IdentityAgent=none -o IdentitiesOnly=yes -i "$HOME/.ssh/id_nas_automation" root@192.168.1.154 "is-nas-busy" >/dev/null 2>&1; then
                     log "NAS is currently busy (Samba/Active Streams). Delaying shutdown."
+                    "$SCRIPT_DIR/log-power-event.sh" "ShutdownDelay" "IdleTimeout" "BUSY" "NAS skip shutdown due to active Samba sessions."
                 else
                     log "Initiating NAS and Incus shutdown..."
                     "$SHUTDOWN_NAS" || log "Failed to shut down NAS"
