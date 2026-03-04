@@ -63,11 +63,18 @@ while true; do
         else
             # Normal Idle
             if [[ "$last_state" != "OFF" ]]; then
-                log "User idle for >30m. Initiating NAS and Incus shutdown..."
-                "$SHUTDOWN_NAS" || log "Failed to shut down NAS"
-                "$SHUTDOWN_INCUS" || log "Failed to shut down Incus"
-                last_state="OFF"
-                "$SCRIPT_DIR/log-power-event.sh" "StateChange" "IdleTimeout" "OFF" "System idle for >30m. NAS/Incus shut down."
+                log "User idle for >30m. Checking if NAS is busy before shutdown..."
+                # Call the unified busy check on the NAS via SSH. 
+                # Reuses the same root automation key.
+                if ssh -o BatchMode=yes -o ConnectTimeout=5 -o IdentityAgent=none -o IdentitiesOnly=yes -i "$HOME/.ssh/id_nas_automation" root@192.168.1.154 "is-nas-busy" >/dev/null 2>&1; then
+                    log "NAS is currently busy (Samba/Active Streams). Delaying shutdown."
+                else
+                    log "Initiating NAS and Incus shutdown..."
+                    "$SHUTDOWN_NAS" || log "Failed to shut down NAS"
+                    "$SHUTDOWN_INCUS" || log "Failed to shut down Incus"
+                    last_state="OFF"
+                    "$SCRIPT_DIR/log-power-event.sh" "StateChange" "IdleTimeout" "OFF" "System idle for >30m. NAS/Incus shut down."
+                fi
             fi
         fi
     else

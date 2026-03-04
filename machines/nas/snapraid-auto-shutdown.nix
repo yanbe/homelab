@@ -1,6 +1,19 @@
 { pkgs, lib, ... }:
 
 let
+  isNasBusyScript = pkgs.writeShellScriptBin "is-nas-busy" ''
+    #!/usr/bin/env bash
+    # Returns 0 if busy, 1 if idle.
+
+    # 1. Samba Check: Exit with 0 if locks are detected.
+    if ${pkgs.samba}/bin/smbstatus -L | grep -qE "^[0-9]+"; then
+        exit 0
+    fi
+
+    # Exit with 1 if idle.
+    exit 1
+  '';
+
   shutdownScript = pkgs.writeShellScriptBin "snapraid-auto-shutdown" ''
     #!/usr/bin/env bash
     # Checks if the system should power off after SnapRAID maintenance.
@@ -13,26 +26,18 @@ let
     fi
 
     # 2. Desktop activity check (Pushed by monitor-display.sh via SSH)
-    # This is our primary 'User Active' indicator.
     if [[ -f /run/desktop_active ]]; then
         STATE=$(cat /run/desktop_active)
-        # Check if the state file is relatively fresh (last 10 minutes)
         FILE_AGE=$(($(date +%s) - $(date -r /run/desktop_active +%s)))
-        if [[ $FILE_AGE -le 600 ]]; then
-            if [[ "$STATE" == "True" ]]; then
-                echo "[$(date)] Desktop reported as ACTIVE ($FILE_AGEs ago). Skipping autonomous shutdown."
-                exit 0
-            fi
-        else
-            echo "[$(date)] Warning: Desktop state file is stale ($FILE_AGEs old). Falling back to Samba check."
+        if [[ $FILE_AGE -le 600 && "$STATE" == "True" ]]; then
+            echo "[$(date)] Desktop reported as ACTIVE ($FILE_AGEs ago). Skipping autonomous shutdown."
+            exit 0
         fi
     fi
 
-    # 3. Fallback: Samba activity check
-    # If the user is streaming a movie or has files open, smbstatus will show locks.
-    # Exclude matches for 'No locked files' by checking for numeric PIDs at start of line.
-    if ${pkgs.samba}/bin/smbstatus -L | grep -qE "^[0-9]+"; then
-        echo "[$(date)] Active Samba file handles detected. Skipping autonomous shutdown."
+    # 3. Unified Busy Check (Samba, etc.)
+    if ${isNasBusyScript}/bin/is-nas-busy; then
+        echo "[$(date)] NAS is busy (Samba). Skipping autonomous shutdown."
         exit 0
     fi
 
@@ -41,6 +46,8 @@ let
   '';
 in
 {
+  environment.systemPackages = [ isNasBusyScript ];
+
   systemd.services.snapraid-auto-shutdown = {
     description = "Autonomous Shutdown Check after SnapRAID Tasks";
     serviceConfig = {
