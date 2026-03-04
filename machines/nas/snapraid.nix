@@ -1,4 +1,8 @@
 {
+  imports = [
+    ./snapraid-auto-shutdown.nix
+  ];
+
   # see also: ./disko.nix
   services.snapraid = {
     enable = true;
