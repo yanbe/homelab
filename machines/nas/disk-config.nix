@@ -46,6 +46,7 @@ let
               type = "filesystem";
               format = "f2fs";
               mountpoint = "/mnt/ssd/${name}";
+              # 2nd pass: skip fsck
               extraArgs = [
                 # f2fs mkfs f2fs-specific flags:
                 "-O"
@@ -88,6 +89,7 @@ let
               type = "filesystem";
               format = "xfs";
               mountpoint = "/mnt/hdd/${name}";
+              # 2nd pass: skip fsck
               extraArgs = [
                 # mkfs.xfs に渡す追加オプション
                 "-m"
@@ -210,7 +212,8 @@ in
       "/etc/ssh/ssh_host_ed25519_key.pub"
       "/etc/ssh/ssh_host_rsa_key"
       "/etc/ssh/ssh_host_rsa_key.pub"
-      "/etc/tpm-luks-init-done"
+      "/etc/tpm-luks-init_done"
+      "/etc/machine-id"
     ];
   };
 }

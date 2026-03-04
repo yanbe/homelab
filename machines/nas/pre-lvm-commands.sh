@@ -39,28 +39,24 @@ if [ $CONNECTED -eq 1 ]; then
 	if RAW_KEY=$(tpm_unsealdata -z -i /mnt-boot/tpm-luks.key.sealed) && [ -n "$RAW_KEY" ]; then
 		echo "TPM-AUTO-UNLOCK: Unseal SUCCESS!"
 
-		# バックグラウンドプロセスのIDを管理する配列（POSIXシェル用）
+		# 理由: PMP 経由の 8台同時アクセスは I/O 詰まりと 60s タイムアウトの原因になる。
+		# シリアルに PMP を回すことで、非 PMP デバイスの非同期解錠と適度に overlap しつつ
+		# バス帯域の破綻を防ぐ。
 		PIDS=""
-
 		for dev in /dev/disk/by-partlabel/disk-*; do
-			if cryptsetup isLuks "$dev"; then
-				# デバイスパスからラベル名を取得 (例: /dev/.../disk-stick_usb3_ex-nix -> disk-stick_usb3_ex-nix)
-				LABEL="${dev##*/}"
+			if [ ! -e "$dev" ] || ! cryptsetup isLuks "$dev"; then continue; fi
+			LABEL="${dev##*/}"
+			TEMP_NAME="${LABEL#disk-}"
+			BASE_NAME="${TEMP_NAME%-*}"
+			MAP_NAME="luks_${BASE_NAME}"
 
-				# 先頭の "disk-" を削除 (-> stick_usb3_ex-nix)
-				TEMP_NAME="${LABEL#disk-}"
-
-				# 最後のハイフンとその直後 (サフィックス) を削除 (-> stick_usb3_ex)
-				# %-* は「最後に見つかるハイフンから後ろ」を切り捨てます
-				BASE_NAME="${TEMP_NAME%-*}"
-
-				# NixOSが期待するマッパー名を作成
-				MAP_NAME="luks_${BASE_NAME}"
-
-				echo "TPM-AUTO-UNLOCK: Starting open for $dev..."
-				# サブシェル内で実行し、バックグラウンドへ
+			if echo "$LABEL" | grep -q "pmp"; then
+				echo "TPM-AUTO-UNLOCK: Starting OPEN (SERIAL-PMP) for $dev..."
+				echo -n "$RAW_KEY" | cryptsetup open "$dev" "$MAP_NAME" --key-file=-
+				echo "TPM-AUTO-UNLOCK: Finished $MAP_NAME"
+			else
+				echo "TPM-AUTO-UNLOCK: Starting OPEN (ASYNC) for $dev..."
 				(
-					# パイプ経由で鍵を渡し、標準入力を確実に閉じる
 					echo -n "$RAW_KEY" | cryptsetup open "$dev" "$MAP_NAME" --key-file=-
 					echo "TPM-AUTO-UNLOCK: Finished $MAP_NAME"
 				) &
@@ -68,11 +64,12 @@ if [ $CONNECTED -eq 1 ]; then
 			fi
 		done
 
-		# すべての cryptsetup プロセスが終了するまで待機
-		echo "TPM-AUTO-UNLOCK: Waiting for all disks to unlock..."
-		for pid in $PIDS; do
-			wait "$pid"
-		done
+		if [ -n "$PIDS" ]; then
+			echo "TPM-AUTO-UNLOCK: Waiting for async unlocks..."
+			for pid in $PIDS; do
+				wait "$pid"
+			done
+		fi
 
 		unset RAW_KEY
 	else

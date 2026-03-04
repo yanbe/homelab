@@ -39,7 +39,16 @@ in
   nixpkgs.config.allowUnfree = true;
 
   boot = {
-    kernelParams = [ "libata.force=5:noncq" ];
+    kernelParams = [
+      "libata.force=5:noncq"
+      "libata.force=5.08:disable,5.09:disable,5.10:disable,5.11:disable,5.12:disable,5.13:disable,5.14:disable"
+      "scsi_mod.scan=async"
+      "rootdelay=0"
+      "quiet"
+      "loglevel=3"
+      "rd.systemd.show_status=auto"
+      "rd.udev.log_level=3"
+    ];
 
     loader.grub = {
       enable = true;
@@ -155,7 +164,29 @@ in
     hostId = "8425e349";
     firewall.enable = true;
     firewall.allowPing = true;
-    interfaces.enp4s0.wakeOnLan.enable = true;
+    useDHCP = false;
+    interfaces.enp4s0 = {
+      ipv4.addresses = [
+        {
+          address = "192.168.1.154";
+          prefixLength = 24;
+        }
+      ];
+      wakeOnLan.enable = true;
+    };
+    interfaces.enp2s0 = {
+      ipv4.addresses = [
+        {
+          address = "192.168.1.4";
+          prefixLength = 24;
+        }
+      ];
+    };
+    defaultGateway = "192.168.1.1";
+    nameservers = [
+      "192.168.1.1"
+      "8.8.8.8"
+    ];
   };
 
   systemd.services = {
@@ -238,6 +269,4 @@ in
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDg/I8PnP4P9EBVTazW1oL1E8rYj0dzQ0bHQ3k8a06wu nas-automation"
     ];
   };
-
-  # system.stateVersion = "25.11";
 }
