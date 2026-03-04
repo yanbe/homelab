@@ -12,3 +12,4 @@ BROADCAST_IP="192.168.1.255"
 powershell.exe -ExecutionPolicy Bypass -File "$(wslpath -w "$SCRIPT_DIR/wol.ps1")" "$NAS_MAC" "$BROADCAST_IP"
 
 echo "Wake-on-LAN packet sent to NAS ($NAS_MAC)."
+"$SCRIPT_DIR/log-power-event.sh" "WakeUp" "Automation" "Success" "WOL packet sent to MAC $NAS_MAC"

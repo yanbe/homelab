@@ -21,18 +21,15 @@ public class User32 {
 $idleSeconds = [User32]::GetIdleTicks()
 $timeoutSeconds = 1800 # 30 minutes of idle time
 
-$reqs = powercfg /requests 2>$null
+$reqs = @(powercfg /requests 2>$null)
 $isDisplayBlocked = $false
-if ($reqs -is [array]) {
-    # Check if DISPLAY or SYSTEM sleep is blocked (e.g. video playing)
-    for ($i = 0; $i -lt $reqs.Count; $i++) {
-        if ($reqs[$i] -match "\[DISPLAY\]" -or $reqs[$i] -match "\[SYSTEM\]") {
-            if (($i + 1) -lt $reqs.Count) {
-                $next = $reqs[$i + 1].Trim()
-                if ($next -ne "" -and $next -notmatch "(None|なし)") {
-                    $isDisplayBlocked = $true
-                    break
-                }
+foreach ($i in 0..($reqs.Count - 1)) {
+    if ($reqs[$i] -match "\[(DISPLAY|SYSTEM)\]") {
+        if (($i + 1) -lt $reqs.Count) {
+            $next = $reqs[$i + 1].Trim()
+            if ($next -ne "" -and $next -notmatch "(None|なし)") {
+                $isDisplayBlocked = $true
+                break
             }
         }
     }

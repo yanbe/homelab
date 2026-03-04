@@ -1,89 +1,74 @@
 #!/usr/bin/env bash
 # scripts/monitor-display.sh
-# Monitors the Windows display state from WSL2 and manages NAS/Incus power states.
+# Monitors the Windows display state from WSL2 and manages NAS power states.
 
 # --- Configuration ---
 CHECK_INTERVAL=30    # Seconds
 SNAPRAID_START="04:25"
 SNAPRAID_END="06:30"
+
 # --- Paths ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SHUTDOWN_NAS="$SCRIPT_DIR/shutdown-nas.sh"
 WAKE_NAS="$SCRIPT_DIR/wake-nas.sh"
-# SHUTDOWN_INCUS="$SCRIPT_DIR/shutdown-incus.sh"
-# WAKE_INCUS="$SCRIPT_DIR/wake-incus.sh"
+SHUTDOWN_INCUS="$SCRIPT_DIR/shutdown-incus.sh"
+WAKE_INCUS="$SCRIPT_DIR/wake-incus.sh"
 
+# State: ON, OFF, MAINTENANCE
 last_state="unknown"
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    echo "[$(TZ="Asia/Tokyo" date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
 is_maintenance_time() {
     local now
-    now=$(date +%H:%M)
+    now=$(TZ="Asia/Tokyo" date +%H:%M)
     [[ "$now" > "$SNAPRAID_START" && "$now" < "$SNAPRAID_END" ]]
 }
 
 get_display_active() {
-    # Calls a custom PowerShell script to detect if DPMS display sleep is active
-    # By checking user idle time vs Windows powercfg VIDEOIDLE timeout
+    # Returns "True" if user is active or display is blocked, "False" if idle.
     powershell.exe -ExecutionPolicy Bypass -File "$(wslpath -w "$SCRIPT_DIR/check-display.ps1")" | tr -d '\r' | tail -n 1
 }
 
-log "Starting display monitor service..."
-
-# Initialize last_state on first run
-current_active=$(get_display_active)
-if [[ "$current_active" == "True" ]]; then
-    last_state="ON"
-else
-    last_state="OFF"
-fi
-log "Initial display state: $last_state"
+log "Starting display monitor service (State Machine v2)..."
 
 while true; do
     current_active=$(get_display_active)
     
     if [[ "$current_active" == "True" ]]; then
-        current_state="ON"
-    elif [[ "$current_active" == "False" ]]; then
-        current_state="OFF"
-    else
-        current_state="unknown"
-    fi
-
-    # State transition: OFF -> ON
-    if [[ "$last_state" == "OFF" && "$current_state" == "ON" ]]; then
-        log "Display turned ON. Waking up hosts..."
-        "$WAKE_NAS" || log "Failed to wake NAS"
-        # "$WAKE_INCUS" || log "Failed to wake Incus"
+        # 1. State: USER ACTIVE
+        if [[ "$last_state" != "ON" ]]; then
+            log "Display turned ON / User active. Ensuring NAS and Incus are awake..."
+            "$WAKE_NAS" || log "Failed to wake NAS (will retry)"
+            "$WAKE_INCUS" || log "Failed to wake Incus (will retry)"
+            last_state="ON"
+            "$SCRIPT_DIR/log-power-event.sh" "StateChange" "UserActive" "ON" "User detected on Windows PC. NAS/Incus woke up."
+        fi
     
-    # State transition: ON -> OFF (or unknown -> OFF)
-    elif [[ "$current_state" == "OFF" && "$last_state" != "OFF" ]]; then
+    elif [[ "$current_active" == "False" ]]; then
+        # 2. State: USER IDLE
         if is_maintenance_time; then
-            log "Display is OFF. Initiating shutdown for NAS and Incus..."
-  
-            # Trigger shutdown concurrently
-            "$SHUTDOWN_NAS" &
-            # "$SHUTDOWN_INCUS" &
-            wait
+            # Maintenance Window
+            if [[ "$last_state" != "MAINTENANCE" ]]; then
+                log "User idle, but maintenance window active ($SNAPRAID_START - $SNAPRAID_END). Waking NAS..."
+                "$WAKE_NAS" && last_state="MAINTENANCE" || log "Failed to wake NAS for maintenance (will retry)"
+                "$SCRIPT_DIR/log-power-event.sh" "StateChange" "Maintenance" "MAINTENANCE" "SnapRAID maintenance window started."
+            fi
         else
-            log "Display turned OFF. Shutting down hosts..."
-            "$SHUTDOWN_NAS" || log "Failed to shut down NAS"
-            # "$SHUTDOWN_INCUS" || log "Failed to shut down Incus"
+            # Normal Idle
+            if [[ "$last_state" != "OFF" ]]; then
+                log "User idle for >30m. Initiating NAS and Incus shutdown..."
+                "$SHUTDOWN_NAS" || log "Failed to shut down NAS"
+                "$SHUTDOWN_INCUS" || log "Failed to shut down Incus"
+                last_state="OFF"
+                "$SCRIPT_DIR/log-power-event.sh" "StateChange" "IdleTimeout" "OFF" "System idle for >30m. NAS/Incus shut down."
+            fi
         fi
-
-    # Maintenance check when display is OFF
-    elif [[ "$current_state" == "OFF" ]]; then
-        # If it just entered maintenance time, wake the NAS
-        now=$(date +%H:%M)
-        if [[ "$now" == "$SNAPRAID_START" ]]; then
-            log "Maintenance time started. Waking NAS..."
-            "$WAKE_NAS" || log "Failed to wake NAS"
-        fi
+    else
+        log "Warning: Unexpected output from check-display.ps1: '$current_active'"
     fi
 
-    last_state="$current_state"
     sleep "$CHECK_INTERVAL"
 done

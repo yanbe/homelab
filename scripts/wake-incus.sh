@@ -7,12 +7,10 @@
 
 # Onboard 1GbE interface (reliable for WOL)
 MAC_ADDRESSES=(
-  "c4:62:37:00:8e:56"
-  "c4:62:37:00:8e:54"
-  "00:2b:f5:71:72:0d"
-  # 10GbE NIC (Intel X540-AT2) - Does not support Wake-on-LAN (Magic Packet) by design.
-  # "a0:36:9f:5c:ec:cc"
-  # "a0:36:9f:5c:ec:ce"
+  "c8:d9:d2:15:6f:13" # Onboard I219-LM (Verified at 192.168.1.6)
+  "c4:62:37:00:8e:54" # 10GbE Port 0 (Verified at 192.168.1.10)
+  "c4:62:37:00:8e:56" # Historical Port recorded
+  "c4:62:37:00:8e:6d" # Registered at Router as .180
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
