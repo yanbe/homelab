@@ -1,10 +1,6 @@
 { pkgs, lib, ... }:
 
 let
-  desktopMacs = [
-    "80:3f:5d:d5:0d:af" # Realtek USB 5GbE
-    "fc:22:1c:40:34:a5" # Wi-Fi
-  ];
   shutdownScript = pkgs.writeShellScriptBin "snapraid-auto-shutdown" ''
     #!/usr/bin/env bash
     # Checks if the system should power off after SnapRAID maintenance.
@@ -16,16 +12,31 @@ let
         exit 0
     fi
 
-    # 2. Desktop check (Robust MAC-based detection)
-    # We check the ARP/neighbor table for the desktop's known MAC addresses.
-    for mac in ${builtins.concatStringsSep " " desktopMacs}; do
-        if ip neighbor show | grep -qi "$mac" | grep -qiE "REACHABLE|DELAY|STALE"; then
-            echo "[$(date)] Windows Desktop MAC ($mac) is active. Skipping autonomous shutdown."
-            exit 0
+    # 2. Desktop activity check (Pushed by monitor-display.sh via SSH)
+    # This is our primary 'User Active' indicator.
+    if [[ -f /run/desktop_active ]]; then
+        STATE=$(cat /run/desktop_active)
+        # Check if the state file is relatively fresh (last 10 minutes)
+        FILE_AGE=$(($(date +%s) - $(date -r /run/desktop_active +%s)))
+        if [[ $FILE_AGE -le 600 ]]; then
+            if [[ "$STATE" == "True" ]]; then
+                echo "[$(date)] Desktop reported as ACTIVE ($FILE_AGEs ago). Skipping autonomous shutdown."
+                exit 0
+            fi
+        else
+            echo "[$(date)] Warning: Desktop state file is stale ($FILE_AGEs old). Falling back to Samba check."
         fi
-    done
+    fi
 
-    echo "[$(date)] Maintenance complete, window active, and Desktop absent. Initiating poweroff..."
+    # 3. Fallback: Samba activity check
+    # If the user is streaming a movie or has files open, smbstatus will show locks.
+    # Exclude matches for 'No locked files' by checking for numeric PIDs at start of line.
+    if ${pkgs.samba}/bin/smbstatus -L | grep -qE "^[0-9]+"; then
+        echo "[$(date)] Active Samba file handles detected. Skipping autonomous shutdown."
+        exit 0
+    fi
+
+    echo "[$(date)] Maintenance complete, window active, and system idle. Initiating poweroff..."
     ${pkgs.systemd}/bin/systemctl poweroff
   '';
 in

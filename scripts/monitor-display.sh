@@ -37,6 +37,10 @@ log "Starting display monitor service (State Machine v2)..."
 while true; do
     current_active=$(get_display_active)
     
+    # Push state to NAS for autonomous shutdown decisions (Maintenance Window)
+    # Reuses the same root automation key as shutdown-nas.sh.
+    ssh -o BatchMode=yes -o ConnectTimeout=2 -o IdentityAgent=none -o IdentitiesOnly=yes -i "$HOME/.ssh/id_nas_automation" root@192.168.1.154 "echo $current_active > /run/desktop_active" >/dev/null 2>&1 || true
+
     if [[ "$current_active" == "True" ]]; then
         # 1. State: USER ACTIVE
         if [[ "$last_state" != "ON" ]]; then
