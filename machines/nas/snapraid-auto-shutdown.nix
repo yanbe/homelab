@@ -6,7 +6,8 @@ let
     # Returns 0 if busy, 1 if idle.
 
     # 1. Samba Check: Exit with 0 if locks are detected.
-    if ${pkgs.samba}/bin/smbstatus -L | grep -qE "^[0-9]+"; then
+    # Exclude locks on the root directory '.' which are often held idly by Windows Explorer.
+    if ${pkgs.samba}/bin/smbstatus -L | awk 'NR>3 && $8 != "."' | grep -qE "^[0-9]+"; then
         exit 0
     fi
 
