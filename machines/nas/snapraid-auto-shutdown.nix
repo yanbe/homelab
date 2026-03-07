@@ -1,4 +1,4 @@
-{ pkgs, lib, ... }:
+{ pkgs, ... }:
 
 let
   isNasBusyScript = pkgs.writeShellScriptBin "is-nas-busy" ''
