@@ -57,7 +57,11 @@ while true; do
             # Maintenance Window
             if [[ "$last_state" != "MAINTENANCE" ]]; then
                 log "User idle, but maintenance window active ($SNAPRAID_START - $SNAPRAID_END). Waking NAS..."
-                "$WAKE_NAS" && last_state="MAINTENANCE" || log "Failed to wake NAS for maintenance (will retry)"
+                if "$WAKE_NAS"; then
+                    last_state="MAINTENANCE"
+                else
+                    log "Failed to wake NAS for maintenance (will retry)"
+                fi
                 "$SCRIPT_DIR/log-power-event.sh" "StateChange" "Maintenance" "MAINTENANCE" "SnapRAID maintenance window started."
             fi
         else
@@ -66,15 +70,38 @@ while true; do
                 log "User idle for >30m. Checking if NAS is busy before shutdown..."
                 # Call the unified busy check on the NAS via SSH. 
                 # Reuses the same root automation key.
-                if ssh -o BatchMode=yes -o ConnectTimeout=5 -o IdentityAgent=none -o IdentitiesOnly=yes -i "$HOME/.ssh/id_nas_automation" root@192.168.1.154 "is-nas-busy" >/dev/null 2>&1; then
+                ssh -o BatchMode=yes -o ConnectTimeout=5 -o IdentityAgent=none -o IdentitiesOnly=yes -i "$HOME/.ssh/id_nas_automation" root@192.168.1.154 "is-nas-busy" >/dev/null 2>&1
+                ssh_exit_code=$?
+                if [[ $ssh_exit_code -eq 0 ]]; then
                     log "NAS is currently busy (Samba/Active Streams). Delaying shutdown."
                     "$SCRIPT_DIR/log-power-event.sh" "ShutdownDelay" "IdleTimeout" "BUSY" "NAS skip shutdown due to active Samba sessions."
-                else
+                elif [[ $ssh_exit_code -eq 1 ]]; then
                     log "Initiating NAS and Incus shutdown..."
-                    "$SHUTDOWN_NAS" || log "Failed to shut down NAS"
-                    "$SHUTDOWN_INCUS" || log "Failed to shut down Incus"
-                    last_state="OFF"
-                    "$SCRIPT_DIR/log-power-event.sh" "StateChange" "IdleTimeout" "OFF" "System idle for >30m. NAS/Incus shut down."
+                    nas_shutdown_success=false
+                    incus_shutdown_success=false
+                    
+                    if "$SHUTDOWN_NAS"; then
+                        nas_shutdown_success=true
+                    else
+                        log "Failed to shut down NAS"
+                    fi
+                    
+                    if "$SHUTDOWN_INCUS"; then
+                        incus_shutdown_success=true
+                    else
+                        log "Failed to shut down Incus"
+                    fi
+                    
+                    if "$nas_shutdown_success" && "$incus_shutdown_success"; then
+                        last_state="OFF"
+                        "$SCRIPT_DIR/log-power-event.sh" "StateChange" "IdleTimeout" "OFF" "System idle for >30m. NAS/Incus shut down."
+                    else
+                        log "Partial or total shutdown failure. State remains '$last_state' to retry later."
+                        "$SCRIPT_DIR/log-power-event.sh" "StateChange" "IdleTimeout" "ERROR" "Shutdown sequence failed. Will retry."
+                    fi
+                else
+                    log "Network error checking NAS busy state (exit code: $ssh_exit_code). Delaying shutdown."
+                    "$SCRIPT_DIR/log-power-event.sh" "ShutdownDelay" "IdleTimeout" "ERROR" "Failed to reach NAS via SSH."
                 fi
             fi
         fi
