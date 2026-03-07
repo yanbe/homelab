@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 # scripts/wake-incus.sh
 # Sends a Wake-on-LAN magic packet to the Incus host.
-# NOTE: As of 2026-03-01, S5 WOL is non-functional on the HP EliteDesk 800 G4 SFF
-# due to a definitive hardware/BIOS limitation. This script is preserved for
-# future use in case a firmware update or different hardware resolves the issue.
-
 # Onboard 1GbE interface (reliable for WOL)
 MAC_ADDRESSES=(
   "c8:d9:d2:15:6f:13" # Onboard I219-LM (Verified at 192.168.1.6)
@@ -22,3 +18,4 @@ for MAC in "${MAC_ADDRESSES[@]}"; do
 done
 
 echo "Wake-on-LAN packets sent to Incus Host."
+"$SCRIPT_DIR/log-power-event.sh" "WakeUp" "Automation" "Success" "WOL packets sent to Incus Host."
