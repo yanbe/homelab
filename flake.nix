@@ -17,6 +17,7 @@
     { self, ... }@inputs:
     let
       pkgs = import inputs.nixpkgs { system = "x86_64-linux"; };
+      machineConfigurations = import ./machines/flake.nix { inherit inputs; };
     in
     {
       devShells.x86_64-linux.default = pkgs.mkShell {
@@ -37,24 +38,6 @@
         specialArgs = { inherit inputs; };
         format = "install-iso";
       };
-      nixosConfigurations.nas = inputs.nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [
-          ./machines/nas
-          ./machines/nas/kernel.nix
-          ./machines/nas/disk-config.nix
-          ./machines/nas/mergerfs.nix
-          ./machines/nas/snapraid.nix
-          ./machines/nas/samba.nix
-        ];
-        specialArgs = { inherit inputs; };
-      };
-      nixosConfigurations.incus = inputs.nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [
-          ./machines/incus
-        ];
-        specialArgs = { inherit inputs; };
-      };
+      nixosConfigurations = machineConfigurations;
     };
 }
